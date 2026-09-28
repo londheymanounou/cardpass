@@ -1,0 +1,4 @@
+The passphrase wordlist (wordlist.c) is the EFF Large Wordlist for Passphrases,
+by the Electronic Frontier Foundation, licensed CC BY 3.0 US.
+https://www.eff.org/dice  https://creativecommons.org/licenses/by/3.0/us/
+It is stored front-coded; the words are unchanged.
