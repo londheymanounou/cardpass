@@ -1,0 +1,437 @@
+/* KDBX 4.x unlock pipeline, fully streaming:
+ * file -> HMAC blocks -> AES-CBC / ChaCha20 -> gzip (tinfl) -> inner header -> XML index.
+ * Decrypted data is parsed before its block HMAC is checked (blocks are 1 MiB,
+ * too big to buffer); on any failure the whole index is wiped and nothing is returned. */
+#include <stdlib.h>
+#include <string.h>
+#include "mbedtls/aes.h"
+#include "mbedtls/chacha20.h"
+#include "mbedtls/constant_time.h"
+#include "mbedtls/md.h"
+#include "mbedtls/platform_util.h"
+#include "mbedtls/sha256.h"
+#include "mbedtls/sha512.h"
+#ifdef ESP_PLATFORM
+#include "rom/miniz.h"
+#else
+#include "miniz.h"
+#endif
+#include "kdbx_priv.h"
+
+#define CHUNK 4096
+
+static const uint8_t UUID_AES256[16] = {0x31,0xc1,0xf2,0xe6,0xbf,0x71,0x43,0x50,0xbe,0x58,0x05,0x21,0x6a,0xfc,0x5a,0xff};
+static const uint8_t UUID_CHACHA20[16] = {0xd6,0x03,0x8a,0x2b,0x8b,0x6f,0x4c,0xb5,0xa5,0x24,0x33,0x9a,0x31,0xdb,0xb5,0x9a};
+static const uint8_t UUID_AESKDF4[16] = {0xc9,0xd9,0xf3,0x9a,0x62,0x8a,0x44,0x60,0xbf,0x74,0x0d,0x08,0xc1,0x8a,0x4f,0xea};
+static const uint8_t UUID_AESKDF3[16] = {0x7c,0x02,0xbb,0x82,0x79,0xa7,0x4a,0xc0,0x92,0x7d,0x11,0x4a,0x00,0x64,0x82,0x38};
+
+const char *kdbx_strerror(kdbx_err e)
+{
+    switch (e) {
+    case KDBX_OK: return "OK";
+    case KDBX_ERR_IO: return "Read error or truncated file";
+    case KDBX_ERR_FORMAT: return "Not a valid KDBX file";
+    case KDBX_ERR_VERSION: return "Unsupported KDBX version (only KDBX 4.x)";
+    case KDBX_ERR_KDF: return "Unsupported KDF (use AES-KDF (KDBX 4), not Argon2)";
+    case KDBX_ERR_CIPHER: return "Unsupported cipher (only AES-256 and ChaCha20)";
+    case KDBX_ERR_KEY: return "Wrong password or key file";
+    case KDBX_ERR_CORRUPT: return "Database is corrupted";
+    case KDBX_ERR_KEYFILE: return "Invalid key file";
+    case KDBX_ERR_NOMEM: return "Out of memory";
+    }
+    return "Unknown error";
+}
+
+static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+static uint64_t le64(const uint8_t *p) { return le32(p) | (uint64_t)le32(p + 4) << 32; }
+static void put_le64(uint8_t *p, uint64_t v) { for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> 8 * i); }
+static bool rd(FILE *f, void *b, size_t n) { return fread(b, 1, n, f) == n; }
+
+/* ---------------- header ---------------- */
+
+static kdbx_err parse_kdf(kdbx_header *h, const uint8_t *p, size_t n)
+{
+    const uint8_t *end = p + n;
+    bool uuid = false, seed = false;
+    if (n < 3 || p[1] != 1) return KDBX_ERR_FORMAT; /* VariantDictionary 1.x */
+    for (p += 2; p < end && *p;) {
+        if (end - p < 9) return KDBX_ERR_FORMAT;
+        uint8_t type = *p;
+        uint32_t kl = le32(p + 1);
+        if (kl > (size_t)(end - p) - 9) return KDBX_ERR_FORMAT;
+        const uint8_t *key = p + 5;
+        uint32_t vl = le32(key + kl);
+        const uint8_t *v = key + kl + 4;
+        if (vl > (size_t)(end - v)) return KDBX_ERR_FORMAT;
+        if (kl == 5 && !memcmp(key, "$UUID", 5) && vl == 16) {
+            if (memcmp(v, UUID_AESKDF4, 16) && memcmp(v, UUID_AESKDF3, 16)) return KDBX_ERR_KDF;
+            uuid = true;
+        } else if (kl == 1 && *key == 'R' && type == 0x05 && vl == 8) {
+            h->rounds = le64(v);
+        } else if (kl == 1 && *key == 'S' && vl == 32) {
+            memcpy(h->kdf_seed, v, 32);
+            seed = true;
+        }
+        p = v + vl;
+    }
+    return uuid && seed ? KDBX_OK : KDBX_ERR_KDF;
+}
+
+kdbx_err kdbx_read_header(FILE *f, kdbx_header *h)
+{
+    memset(h, 0, sizeof *h);
+    uint8_t *r = h->raw;
+    if (!rd(f, r, 12)) return KDBX_ERR_IO;
+    if (le32(r) != 0x9AA2D903 || le32(r + 4) != 0xB54BFB67) return KDBX_ERR_FORMAT;
+    if ((r[10] | r[11] << 8) != 4) return KDBX_ERR_VERSION;
+    h->rawlen = 12;
+    h->cipher = -1;
+
+    bool seed = false, iv = false, kdf = false, comp = false;
+    for (;;) {
+        uint8_t *fld = r + h->rawlen;
+        if (h->rawlen + 5 > sizeof h->raw || !rd(f, fld, 5)) return h->rawlen + 5 > sizeof h->raw ? KDBX_ERR_FORMAT : KDBX_ERR_IO;
+        uint32_t n = le32(fld + 1);
+        if (n > sizeof h->raw - h->rawlen - 5) return KDBX_ERR_FORMAT;
+        uint8_t *d = fld + 5;
+        if (!rd(f, d, n)) return KDBX_ERR_IO;
+        h->rawlen += 5 + n;
+        kdbx_err err;
+        switch (fld[0]) {
+        case 0: goto end;
+        case 2:
+            if (n == 16 && !memcmp(d, UUID_AES256, 16)) h->cipher = CIPHER_AES256;
+            else if (n == 16 && !memcmp(d, UUID_CHACHA20, 16)) h->cipher = CIPHER_CHACHA20;
+            else return KDBX_ERR_CIPHER;
+            break;
+        case 3:
+            if (n != 4 || le32(d) > 1) return KDBX_ERR_FORMAT;
+            h->gzip = le32(d) == 1;
+            comp = true;
+            break;
+        case 4:
+            if (n != 32) return KDBX_ERR_FORMAT;
+            memcpy(h->master_seed, d, 32);
+            seed = true;
+            break;
+        case 7:
+            if (n != 16 && n != 12) return KDBX_ERR_FORMAT;
+            memcpy(h->iv, d, n);
+            h->ivlen = n;
+            iv = true;
+            break;
+        case 11:
+            if ((err = parse_kdf(h, d, n)) != KDBX_OK) return err;
+            kdf = true;
+            break;
+        default: break; /* public custom data etc. */
+        }
+    }
+end:
+    if (h->cipher < 0 || !seed || !iv || !kdf || !comp) return KDBX_ERR_FORMAT;
+    if (h->ivlen != (h->cipher == CIPHER_AES256 ? 16u : 12u)) return KDBX_ERR_FORMAT;
+    return KDBX_OK;
+}
+
+void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32])
+{
+    mbedtls_aes_context aes;
+    uint8_t b[32];
+    mbedtls_aes_init(&aes);
+    mbedtls_aes_setkey_enc(&aes, seed, 256);
+    memcpy(b, in, 32);
+    /* ponytail: one core, halves interleaved; device splits halves across cores if faster */
+    for (uint64_t i = 0; i < rounds; i++) {
+        mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b, b);
+        mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b + 16, b + 16);
+    }
+    mbedtls_sha256(b, 32, out, 0);
+    mbedtls_aes_free(&aes);
+    mbedtls_platform_zeroize(b, sizeof b);
+}
+
+/* ---------------- payload pipeline ---------------- */
+
+typedef struct {
+    kdbx_db *db;
+    int cipher;
+    bool gzip;
+    mbedtls_aes_context aes;
+    mbedtls_chacha20_context chacha;
+    uint8_t iv[16];
+    uint8_t cbuf[CHUNK + 16];
+    size_t clen;
+    uint8_t out[CHUNK + 16];
+    /* gzip */
+    uint8_t gzh[10];
+    int gzhave;
+    bool inf_done;
+    size_t dict_ofs;
+    tinfl_decompressor inf;
+    uint8_t dict[TINFL_LZ_DICT_SIZE];
+    /* inner header */
+    uint8_t ih[5], val[64];
+    int ihave;
+    uint32_t remain, vlen;
+    bool in_xml, have_id, have_key;
+    xml_index xi;
+} pipeline;
+
+static kdbx_err inner_field_done(pipeline *p)
+{
+    switch (p->ih[0]) {
+    case 0:
+        if (!p->have_id || !p->have_key) return KDBX_ERR_FORMAT;
+        p->in_xml = true;
+        break;
+    case 1:
+        if (p->vlen != 4) return KDBX_ERR_FORMAT;
+        if (le32(p->val) != 3) return KDBX_ERR_CIPHER; /* only ChaCha20 inner stream (KDBX 4 default) */
+        p->have_id = true;
+        break;
+    case 2: {
+        uint8_t h[64];
+        mbedtls_sha512(p->val, p->vlen, h, 0);
+        memcpy(p->db->stream_key, h, 32);
+        memcpy(p->db->stream_nonce, h + 32, 12);
+        mbedtls_platform_zeroize(h, sizeof h);
+        p->have_key = true;
+        break;
+    }
+    default: break; /* 3 = attachment: skipped, never decoded */
+    }
+    p->ihave = 0;
+    return KDBX_OK;
+}
+
+static kdbx_err inner_feed(pipeline *p, const uint8_t *d, size_t n)
+{
+    while (n) {
+        if (p->in_xml) return xml_index_feed(&p->xi, d, n);
+        if (p->ihave < 5) {
+            p->ih[p->ihave++] = *d++;
+            n--;
+            if (p->ihave == 5) {
+                p->remain = le32(p->ih + 1);
+                p->vlen = 0;
+                if ((p->ih[0] == 1 || p->ih[0] == 2) && p->remain > sizeof p->val) return KDBX_ERR_FORMAT;
+                if (!p->remain) { kdbx_err e = inner_field_done(p); if (e) return e; }
+            }
+            continue;
+        }
+        size_t take = n < p->remain ? n : p->remain;
+        if (p->ih[0] == 1 || p->ih[0] == 2) {
+            memcpy(p->val + p->vlen, d, take);
+            p->vlen += (uint32_t)take;
+        }
+        d += take;
+        n -= take;
+        if (!(p->remain -= (uint32_t)take)) { kdbx_err e = inner_field_done(p); if (e) return e; }
+    }
+    return KDBX_OK;
+}
+
+static kdbx_err inflate_feed(pipeline *p, const uint8_t *d, size_t n)
+{
+    if (!p->gzip) return inner_feed(p, d, n);
+    for (; p->gzhave < 10 && n; n--) p->gzh[p->gzhave++] = *d++;
+    if (p->gzhave < 10 || !n) return KDBX_OK;
+    /* ponytail: no optional gzip fields (KeePass/KeePassXC never write them) */
+    if (p->gzh[0] != 0x1f || p->gzh[1] != 0x8b || p->gzh[2] != 8 || p->gzh[3]) return KDBX_ERR_FORMAT;
+
+    while (n && !p->inf_done) {
+        size_t in_sz = n, out_sz = TINFL_LZ_DICT_SIZE - p->dict_ofs;
+        tinfl_status st = tinfl_decompress(&p->inf, d, &in_sz, p->dict, p->dict + p->dict_ofs, &out_sz,
+                                           TINFL_FLAG_HAS_MORE_INPUT);
+        d += in_sz;
+        n -= in_sz;
+        if (out_sz) {
+            kdbx_err e = inner_feed(p, p->dict + p->dict_ofs, out_sz);
+            if (e) return e;
+            p->dict_ofs = (p->dict_ofs + out_sz) & (TINFL_LZ_DICT_SIZE - 1);
+        }
+        if (st < 0) return KDBX_ERR_CORRUPT;
+        if (st == TINFL_STATUS_DONE) p->inf_done = true;
+    }
+    return KDBX_OK; /* bytes after the deflate stream = gzip trailer, covered by the HMAC */
+}
+
+static kdbx_err outer_feed(pipeline *p, const uint8_t *d, size_t n)
+{
+    kdbx_err e;
+    if (p->cipher == CIPHER_CHACHA20) {
+        mbedtls_chacha20_update(&p->chacha, n, d, p->out);
+        return inflate_feed(p, p->out, n);
+    }
+    /* AES-CBC: always hold back the last block (PKCS#7 padding is only known at the end) */
+    memcpy(p->cbuf + p->clen, d, n);
+    p->clen += n;
+    size_t m = p->clen ? (p->clen - 1) / 16 * 16 : 0;
+    if (!m) return KDBX_OK;
+    mbedtls_aes_crypt_cbc(&p->aes, MBEDTLS_AES_DECRYPT, m, p->iv, p->cbuf, p->out);
+    memmove(p->cbuf, p->cbuf + m, p->clen - m);
+    p->clen -= m;
+    e = inflate_feed(p, p->out, m);
+    return e;
+}
+
+static kdbx_err outer_finish(pipeline *p)
+{
+    if (p->cipher == CIPHER_AES256) {
+        if (p->clen != 16) return KDBX_ERR_CORRUPT;
+        mbedtls_aes_crypt_cbc(&p->aes, MBEDTLS_AES_DECRYPT, 16, p->iv, p->cbuf, p->out);
+        uint8_t pad = p->out[15];
+        if (pad < 1 || pad > 16) return KDBX_ERR_CORRUPT;
+        for (int i = 16 - pad; i < 16; i++)
+            if (p->out[i] != pad) return KDBX_ERR_CORRUPT;
+        kdbx_err e = inflate_feed(p, p->out, 16 - pad);
+        if (e) return e;
+    }
+    if (p->gzip && !p->inf_done) return KDBX_ERR_CORRUPT;
+    if (!p->in_xml) return KDBX_ERR_CORRUPT;
+    return xml_index_finish(&p->xi);
+}
+
+static void block_key(const uint8_t hmac_base[64], uint64_t idx, uint8_t out[64])
+{
+    uint8_t b[72];
+    put_le64(b, idx);
+    memcpy(b + 8, hmac_base, 64);
+    mbedtls_sha512(b, sizeof b, out, 0);
+    mbedtls_platform_zeroize(b, sizeof b);
+}
+
+static kdbx_err read_blocks(FILE *f, pipeline *p, mbedtls_md_context_t *md, const uint8_t hmac_base[64])
+{
+    uint8_t stored[32], mac[32], key[64], hdr[12], buf[CHUNK];
+    kdbx_err err = KDBX_OK;
+
+    for (uint64_t idx = 0;; idx++) {
+        if (!rd(f, stored, 32) || !rd(f, hdr + 8, 4)) { err = KDBX_ERR_IO; break; }
+        uint32_t len = le32(hdr + 8);
+        put_le64(hdr, idx);
+        block_key(hmac_base, idx, key);
+        mbedtls_md_hmac_starts(md, key, 64);
+        mbedtls_md_hmac_update(md, hdr, 12);
+        for (uint32_t left = len; left;) {
+            size_t n = left < CHUNK ? left : CHUNK;
+            if (!rd(f, buf, n)) { err = KDBX_ERR_IO; goto out; }
+            mbedtls_md_hmac_update(md, buf, n);
+            if ((err = outer_feed(p, buf, n)) != KDBX_OK) goto out;
+            left -= (uint32_t)n;
+        }
+        mbedtls_md_hmac_finish(md, mac);
+        if (mbedtls_ct_memcmp(mac, stored, 32)) { err = KDBX_ERR_CORRUPT; break; }
+        if (!len) { err = outer_finish(p); break; }
+    }
+out:
+    mbedtls_platform_zeroize(key, sizeof key);
+    mbedtls_platform_zeroize(buf, sizeof buf);
+    return err;
+}
+
+kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out)
+{
+    kdbx_header *h = malloc(sizeof *h);
+    kdbx_db *db = calloc(1, sizeof *db);
+    pipeline *p = calloc(1, sizeof *p);
+    uint8_t sums[64], mac[32], tk[32], buf[72], hmac_base[64], master[32];
+    mbedtls_md_context_t md;
+    kdbx_err err;
+
+    *out = NULL;
+    mbedtls_md_init(&md);
+    mbedtls_aes_init(&p->aes);
+    mbedtls_chacha20_init(&p->chacha);
+    if (!h || !db || !p) { err = KDBX_ERR_NOMEM; goto done; }
+    if ((err = kdbx_read_header(f, h)) != KDBX_OK) goto done;
+    if (!rd(f, sums, 64)) { err = KDBX_ERR_IO; goto done; }
+    mbedtls_sha256(h->raw, h->rawlen, mac, 0);
+    if (memcmp(mac, sums, 32)) { err = KDBX_ERR_CORRUPT; goto done; }
+
+    kdbx_aes_kdf(h->kdf_seed, h->rounds, key->composite, tk);
+    memcpy(buf, h->master_seed, 32);
+    memcpy(buf + 32, tk, 32);
+    mbedtls_sha256(buf, 64, master, 0);
+    buf[64] = 1;
+    mbedtls_sha512(buf, 65, hmac_base, 0);
+
+    if (mbedtls_md_setup(&md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1)) { err = KDBX_ERR_NOMEM; goto done; }
+    uint8_t hk[64];
+    block_key(hmac_base, UINT64_MAX, hk);
+    mbedtls_md_hmac_starts(&md, hk, 64);
+    mbedtls_platform_zeroize(hk, sizeof hk);
+    mbedtls_md_hmac_update(&md, h->raw, h->rawlen);
+    mbedtls_md_hmac_finish(&md, mac);
+    if (mbedtls_ct_memcmp(mac, sums + 32, 32)) { err = KDBX_ERR_KEY; goto done; }
+
+    p->db = db;
+    p->cipher = h->cipher;
+    p->gzip = h->gzip;
+    memcpy(p->iv, h->iv, h->ivlen);
+    if (h->cipher == CIPHER_AES256) {
+        mbedtls_aes_setkey_dec(&p->aes, master, 256);
+    } else {
+        mbedtls_chacha20_setkey(&p->chacha, master);
+        mbedtls_chacha20_starts(&p->chacha, h->iv, 0);
+    }
+    tinfl_init(&p->inf);
+    xml_index_init(&p->xi, db);
+    err = read_blocks(f, p, &md, hmac_base);
+
+done:
+    mbedtls_md_free(&md);
+    mbedtls_platform_zeroize(tk, sizeof tk);
+    mbedtls_platform_zeroize(buf, sizeof buf);
+    mbedtls_platform_zeroize(hmac_base, sizeof hmac_base);
+    mbedtls_platform_zeroize(master, sizeof master);
+    if (p) {
+        mbedtls_aes_free(&p->aes);
+        mbedtls_chacha20_free(&p->chacha);
+        xml_index_wipe(&p->xi);
+        mbedtls_platform_zeroize(p, sizeof *p);
+        free(p);
+    }
+    free(h);
+    if (err) kdbx_close(db);
+    else *out = db;
+    return err;
+}
+
+void kdbx_close(kdbx_db *db)
+{
+    if (!db) return;
+    arena_free(&db->a);
+    mbedtls_platform_zeroize(db, sizeof *db);
+    free(db);
+}
+
+const kdbx_entry *kdbx_entries(const kdbx_db *db) { return db->entries; }
+const kdbx_group *kdbx_groups(const kdbx_db *db) { return db->groups; }
+
+const kdbx_field *kdbx_field_get(const kdbx_entry *e, const char *key)
+{
+    for (const kdbx_field *f = e->fields; f; f = f->next)
+        if (!strcmp(f->key, key)) return f;
+    return NULL;
+}
+
+kdbx_err kdbx_reveal(const kdbx_db *db, const kdbx_field *f, char *out, size_t outsz)
+{
+    if (f->len >= outsz) return KDBX_ERR_NOMEM;
+    if (f->stream_off == KDBX_PLAIN) {
+        memcpy(out, f->value, f->len);
+    } else {
+        mbedtls_chacha20_context c;
+        uint8_t skip[64] = {0};
+        mbedtls_chacha20_init(&c);
+        mbedtls_chacha20_setkey(&c, db->stream_key);
+        mbedtls_chacha20_starts(&c, db->stream_nonce, f->stream_off / 64);
+        mbedtls_chacha20_update(&c, f->stream_off % 64, skip, skip);
+        mbedtls_chacha20_update(&c, f->len, f->value, (uint8_t *)out);
+        mbedtls_chacha20_free(&c);
+        mbedtls_platform_zeroize(skip, sizeof skip);
+    }
+    out[f->len] = 0;
+    return KDBX_OK;
+}
