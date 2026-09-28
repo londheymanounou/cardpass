@@ -7,7 +7,7 @@
 
 /* Provided by the platform: cryptographically secure random bytes
  * (device: esp_fill_random inside bootloader_random_enable/disable). */
-void gen_random(void *buf, size_t n);
+void cp_random(void *buf, size_t n);
 
 uint32_t gen_uniform(uint32_t n); /* [0, n), no modulo bias */
 

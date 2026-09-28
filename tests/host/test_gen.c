@@ -9,7 +9,7 @@ static int failures;
 
 /* Test-only RNG (splitmix64). The device uses the hardware RNG. */
 static uint64_t state = 0x1234567;
-void gen_random(void *buf, size_t n)
+void cp_random(void *buf, size_t n)
 {
     uint8_t *p = buf;
     while (n) {

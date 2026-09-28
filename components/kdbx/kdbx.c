@@ -38,6 +38,7 @@ const char *kdbx_strerror(kdbx_err e)
     case KDBX_ERR_CORRUPT: return "Database is corrupted";
     case KDBX_ERR_KEYFILE: return "Invalid key file";
     case KDBX_ERR_NOMEM: return "Out of memory";
+    case KDBX_ERR_EDIT: return "Invalid edit";
     }
     return "Unknown error";
 }
@@ -153,7 +154,7 @@ void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32],
 /* ---------------- payload pipeline ---------------- */
 
 typedef struct {
-    kdbx_db *db;
+    kdbx_sink *sink;
     int cipher;
     bool gzip;
     mbedtls_aes_context aes;
@@ -174,7 +175,6 @@ typedef struct {
     int ihave;
     uint32_t remain, vlen;
     bool in_xml, have_id, have_key;
-    xml_index xi;
 } pipeline;
 
 static kdbx_err inner_field_done(pipeline *p)
@@ -192,8 +192,8 @@ static kdbx_err inner_field_done(pipeline *p)
     case 2: {
         uint8_t h[64];
         mbedtls_sha512(p->val, p->vlen, h, 0);
-        memcpy(p->db->stream_key, h, 32);
-        memcpy(p->db->stream_nonce, h + 32, 12);
+        memcpy(p->sink->stream_key, h, 32);
+        memcpy(p->sink->stream_nonce, h + 32, 12);
         mbedtls_platform_zeroize(h, sizeof h);
         p->have_key = true;
         break;
@@ -207,7 +207,7 @@ static kdbx_err inner_field_done(pipeline *p)
 static kdbx_err inner_feed(pipeline *p, const uint8_t *d, size_t n)
 {
     while (n) {
-        if (p->in_xml) return xml_index_feed(&p->xi, d, n);
+        if (p->in_xml) return p->sink->xml(p->sink->ctx, d, n);
         if (p->ihave < 5) {
             p->ih[p->ihave++] = *d++;
             n--;
@@ -215,6 +215,10 @@ static kdbx_err inner_feed(pipeline *p, const uint8_t *d, size_t n)
                 p->remain = le32(p->ih + 1);
                 p->vlen = 0;
                 if ((p->ih[0] == 1 || p->ih[0] == 2) && p->remain > sizeof p->val) return KDBX_ERR_FORMAT;
+                if (p->ih[0] == 3 && p->sink->bin) {
+                    kdbx_err e = p->sink->bin(p->sink->ctx, p->ih, 5);
+                    if (e) return e;
+                }
                 if (!p->remain) { kdbx_err e = inner_field_done(p); if (e) return e; }
             }
             continue;
@@ -223,6 +227,9 @@ static kdbx_err inner_feed(pipeline *p, const uint8_t *d, size_t n)
         if (p->ih[0] == 1 || p->ih[0] == 2) {
             memcpy(p->val + p->vlen, d, take);
             p->vlen += (uint32_t)take;
+        } else if (p->ih[0] == 3 && p->sink->bin) {
+            kdbx_err e = p->sink->bin(p->sink->ctx, d, take);
+            if (e) return e;
         }
         d += take;
         n -= take;
@@ -288,11 +295,10 @@ static kdbx_err outer_finish(pipeline *p)
         if (e) return e;
     }
     if (p->gzip && !p->inf_done) return KDBX_ERR_CORRUPT;
-    if (!p->in_xml) return KDBX_ERR_CORRUPT;
-    return xml_index_finish(&p->xi);
+    return p->in_xml ? KDBX_OK : KDBX_ERR_CORRUPT;
 }
 
-static void block_key(const uint8_t hmac_base[64], uint64_t idx, uint8_t out[64])
+void kdbx_block_key(const uint8_t hmac_base[64], uint64_t idx, uint8_t out[64])
 {
     uint8_t b[72];
     put_le64(b, idx);
@@ -310,7 +316,7 @@ static kdbx_err read_blocks(FILE *f, pipeline *p, mbedtls_md_context_t *md, cons
         if (!rd(f, stored, 32) || !rd(f, hdr + 8, 4)) { err = KDBX_ERR_IO; break; }
         uint32_t len = le32(hdr + 8);
         put_le64(hdr, idx);
-        block_key(hmac_base, idx, key);
+        kdbx_block_key(hmac_base, idx, key);
         mbedtls_md_hmac_starts(md, key, 64);
         mbedtls_md_hmac_update(md, hdr, 12);
         for (uint32_t left = len; left;) {
@@ -330,42 +336,48 @@ out:
     return err;
 }
 
-kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out)
+void kdbx_derive(const kdbx_header *h, const uint8_t tk[32], uint8_t master[32], uint8_t hmac_base[64])
 {
-    kdbx_header *h = malloc(sizeof *h);
-    kdbx_db *db = calloc(1, sizeof *db);
-    pipeline *p = calloc(1, sizeof *p);
-    uint8_t sums[64], mac[32], tk[32], buf[72], hmac_base[64], master[32];
-    mbedtls_md_context_t md;
-    kdbx_err err;
-
-    *out = NULL;
-    mbedtls_md_init(&md);
-    mbedtls_aes_init(&p->aes);
-    mbedtls_chacha20_init(&p->chacha);
-    if (!h || !db || !p) { err = KDBX_ERR_NOMEM; goto done; }
-    if ((err = kdbx_read_header(f, h)) != KDBX_OK) goto done;
-    if (!rd(f, sums, 64)) { err = KDBX_ERR_IO; goto done; }
-    mbedtls_sha256(h->raw, h->rawlen, mac, 0);
-    if (memcmp(mac, sums, 32)) { err = KDBX_ERR_CORRUPT; goto done; }
-
-    kdbx_aes_kdf(h->kdf_seed, h->rounds, key->composite, tk);
+    uint8_t buf[65];
     memcpy(buf, h->master_seed, 32);
     memcpy(buf + 32, tk, 32);
     mbedtls_sha256(buf, 64, master, 0);
     buf[64] = 1;
     mbedtls_sha512(buf, 65, hmac_base, 0);
+    mbedtls_platform_zeroize(buf, sizeof buf);
+}
 
-    if (mbedtls_md_setup(&md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1)) { err = KDBX_ERR_NOMEM; goto done; }
+void kdbx_header_hmac(const kdbx_header *h, const uint8_t hmac_base[64], uint8_t mac[32])
+{
     uint8_t hk[64];
-    block_key(hmac_base, UINT64_MAX, hk);
-    mbedtls_md_hmac_starts(&md, hk, 64);
+    kdbx_block_key(hmac_base, UINT64_MAX, hk);
+    mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), hk, 64, h->raw, h->rawlen, mac);
     mbedtls_platform_zeroize(hk, sizeof hk);
-    mbedtls_md_hmac_update(&md, h->raw, h->rawlen);
-    mbedtls_md_hmac_finish(&md, mac);
+}
+
+kdbx_err kdbx_read_file(FILE *f, const uint8_t *composite, uint8_t tk[32], kdbx_header *h, kdbx_sink *s)
+{
+    pipeline *p = calloc(1, sizeof *p);
+    uint8_t sums[64], mac[32], hmac_base[64], master[32];
+    mbedtls_md_context_t md;
+    kdbx_err err;
+
+    mbedtls_md_init(&md);
+    if (!p) return KDBX_ERR_NOMEM;
+    mbedtls_aes_init(&p->aes);
+    mbedtls_chacha20_init(&p->chacha);
+    if ((err = kdbx_read_header(f, h)) != KDBX_OK) goto done;
+    if (!rd(f, sums, 64)) { err = KDBX_ERR_IO; goto done; }
+    mbedtls_sha256(h->raw, h->rawlen, mac, 0);
+    if (memcmp(mac, sums, 32)) { err = KDBX_ERR_CORRUPT; goto done; }
+
+    if (composite) kdbx_aes_kdf(h->kdf_seed, h->rounds, composite, tk);
+    kdbx_derive(h, tk, master, hmac_base);
+    kdbx_header_hmac(h, hmac_base, mac);
     if (mbedtls_ct_memcmp(mac, sums + 32, 32)) { err = KDBX_ERR_KEY; goto done; }
 
-    p->db = db;
+    if (mbedtls_md_setup(&md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1)) { err = KDBX_ERR_NOMEM; goto done; }
+    p->sink = s;
     p->cipher = h->cipher;
     p->gzip = h->gzip;
     memcpy(p->iv, h->iv, h->ivlen);
@@ -376,26 +388,50 @@ kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out)
         mbedtls_chacha20_starts(&p->chacha, h->iv, 0);
     }
     tinfl_init(&p->inf);
-    xml_index_init(&p->xi, db);
     err = read_blocks(f, p, &md, hmac_base);
 
 done:
     mbedtls_md_free(&md);
-    mbedtls_platform_zeroize(tk, sizeof tk);
-    mbedtls_platform_zeroize(buf, sizeof buf);
     mbedtls_platform_zeroize(hmac_base, sizeof hmac_base);
     mbedtls_platform_zeroize(master, sizeof master);
-    if (p) {
-        mbedtls_aes_free(&p->aes);
-        mbedtls_chacha20_free(&p->chacha);
-        xml_index_wipe(&p->xi);
-        mbedtls_platform_zeroize(p, sizeof *p);
-        free(p);
+    mbedtls_aes_free(&p->aes);
+    mbedtls_chacha20_free(&p->chacha);
+    mbedtls_platform_zeroize(p, sizeof *p);
+    free(p);
+    return err;
+}
+
+static kdbx_err index_xml(void *ctx, const uint8_t *d, size_t n) { return xml_index_feed(ctx, d, n); }
+
+kdbx_err kdbx_open_tk(FILE *f, const uint8_t *composite, const uint8_t tk_in[32], kdbx_db **out)
+{
+    kdbx_header *h = malloc(sizeof *h);
+    kdbx_db *db = calloc(1, sizeof *db);
+    xml_index *xi = malloc(sizeof *xi);
+    kdbx_sink s = {index_xml, NULL, xi, {0}, {0}};
+    kdbx_err err = KDBX_ERR_NOMEM;
+
+    *out = NULL;
+    if (h && db && xi) {
+        xml_index_init(xi, db);
+        if (tk_in) memcpy(db->transformed, tk_in, 32);
+        err = kdbx_read_file(f, composite, db->transformed, h, &s);
+        if (!err) err = xml_index_finish(xi);
+        memcpy(db->stream_key, s.stream_key, 32);
+        memcpy(db->stream_nonce, s.stream_nonce, 12);
+        mbedtls_platform_zeroize(&s, sizeof s);
+        xml_index_wipe(xi);
     }
+    free(xi);
     free(h);
     if (err) kdbx_close(db);
     else *out = db;
     return err;
+}
+
+kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out)
+{
+    return kdbx_open_tk(f, key->composite, NULL, out);
 }
 
 void kdbx_close(kdbx_db *db)
@@ -416,22 +452,24 @@ const kdbx_field *kdbx_field_get(const kdbx_entry *e, const char *key)
     return NULL;
 }
 
+void kdbx_stream_xor(const uint8_t key[32], const uint8_t nonce[12], uint32_t off, const uint8_t *in, uint8_t *out, size_t n)
+{
+    mbedtls_chacha20_context c;
+    uint8_t skip[64] = {0};
+    mbedtls_chacha20_init(&c);
+    mbedtls_chacha20_setkey(&c, key);
+    mbedtls_chacha20_starts(&c, nonce, off / 64);
+    mbedtls_chacha20_update(&c, off % 64, skip, skip);
+    mbedtls_chacha20_update(&c, n, in, out);
+    mbedtls_chacha20_free(&c);
+    mbedtls_platform_zeroize(skip, sizeof skip);
+}
+
 kdbx_err kdbx_reveal(const kdbx_db *db, const kdbx_field *f, char *out, size_t outsz)
 {
     if (f->len >= outsz) return KDBX_ERR_NOMEM;
-    if (f->stream_off == KDBX_PLAIN) {
-        memcpy(out, f->value, f->len);
-    } else {
-        mbedtls_chacha20_context c;
-        uint8_t skip[64] = {0};
-        mbedtls_chacha20_init(&c);
-        mbedtls_chacha20_setkey(&c, db->stream_key);
-        mbedtls_chacha20_starts(&c, db->stream_nonce, f->stream_off / 64);
-        mbedtls_chacha20_update(&c, f->stream_off % 64, skip, skip);
-        mbedtls_chacha20_update(&c, f->len, f->value, (uint8_t *)out);
-        mbedtls_chacha20_free(&c);
-        mbedtls_platform_zeroize(skip, sizeof skip);
-    }
+    if (f->stream_off == KDBX_PLAIN) memcpy(out, f->value, f->len);
+    else kdbx_stream_xor(db->stream_key, db->stream_nonce, f->stream_off, f->value, (uint8_t *)out, f->len);
     out[f->len] = 0;
     return KDBX_OK;
 }

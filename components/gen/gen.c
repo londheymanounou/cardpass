@@ -13,7 +13,7 @@ static const char PP_SYMBOLS[] = "!@#$%&*?";
 uint32_t gen_uniform(uint32_t n)
 {
     uint32_t r, limit = UINT32_MAX - UINT32_MAX % n; /* accept [0, limit) */
-    do gen_random(&r, sizeof r);
+    do cp_random(&r, sizeof r);
     while (r >= limit);
     uint32_t v = r % n;
     r = 0;

@@ -57,7 +57,7 @@ bool tbuf_put(tbuf *t, const void *d, size_t n)
     return true;
 }
 
-static void tbuf_clear(tbuf *t)
+void tbuf_clear(tbuf *t)
 {
     if (t->p) mbedtls_platform_zeroize(t->p, t->len);
     t->len = 0;
@@ -73,12 +73,13 @@ void tbuf_free(tbuf *t)
 /* ---------------- XML ---------------- */
 
 enum { T_OTHER, T_GROUP, T_ENTRY, T_HISTORY, T_STRING, T_KEY, T_VALUE, T_UUID, T_NAME, T_TAGS,
-       T_TIMES, T_EXPIRY, T_EXPIRES, T_ROOT };
+       T_TIMES, T_EXPIRY, T_EXPIRES, T_ROOT, T_META, T_RB_ENABLED, T_RB_UUID };
 
 static const char *const tag_names[] = {
     [T_GROUP] = "Group", [T_ENTRY] = "Entry", [T_HISTORY] = "History", [T_STRING] = "String",
     [T_KEY] = "Key", [T_VALUE] = "Value", [T_UUID] = "UUID", [T_NAME] = "Name", [T_TAGS] = "Tags",
     [T_TIMES] = "Times", [T_EXPIRY] = "ExpiryTime", [T_EXPIRES] = "Expires", [T_ROOT] = "Root",
+    [T_META] = "Meta", [T_RB_ENABLED] = "RecycleBinEnabled", [T_RB_UUID] = "RecycleBinUUID",
 };
 
 static int tag_id(const char *name)
@@ -186,7 +187,11 @@ static kdbx_err elem_end(xml_index *xi)
     if (t == T_HISTORY) { xi->history--; goto out; }
     if (xi->history) goto out;
 
-    if (parent == T_GROUP && xi->group && (t == T_NAME || t == T_UUID)) {
+    if (parent == T_META && t == T_RB_ENABLED) {
+        db->recycle_enabled = xi->text.len == 4 && !memcmp(xi->text.p, "True", 4);
+    } else if (parent == T_META && t == T_RB_UUID) {
+        if (b64(xi, db->recycle_uuid, 16) < 0) memset(db->recycle_uuid, 0, 16);
+    } else if (parent == T_GROUP && xi->group && (t == T_NAME || t == T_UUID)) {
         if (t == T_NAME) {
             if (!(xi->group->name = text_dup(xi))) err = KDBX_ERR_NOMEM;
         } else if (b64(xi, xi->group->uuid, 16) < 0) err = KDBX_ERR_FORMAT;
