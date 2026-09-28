@@ -57,3 +57,9 @@ add_test(NAME search COMMAND test_search ${CMAKE_CURRENT_SOURCE_DIR}/../../testd
 add_executable(test_save test_save.c)
 target_link_libraries(test_save kdbx)
 add_test(NAME save COMMAND test_save ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata ${CMAKE_CURRENT_BINARY_DIR}/save_work)
+
+add_library(typing STATIC ../../components/typing/layouts.c ../../components/typing/autotype.c)
+target_include_directories(typing PUBLIC ../../components/typing/include)
+add_executable(test_typing test_typing.c)
+target_link_libraries(test_typing typing)
+add_test(NAME typing COMMAND test_typing)

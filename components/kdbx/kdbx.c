@@ -465,6 +465,14 @@ void kdbx_stream_xor(const uint8_t key[32], const uint8_t nonce[12], uint32_t of
     mbedtls_platform_zeroize(skip, sizeof skip);
 }
 
+const char *kdbx_autotype(const kdbx_entry *e, const char *fallback)
+{
+    if (*e->autotype) return e->autotype;
+    for (const kdbx_group *g = e->group; g; g = g->parent)
+        if (*g->autotype) return g->autotype;
+    return fallback;
+}
+
 kdbx_err kdbx_reveal(const kdbx_db *db, const kdbx_field *f, char *out, size_t outsz)
 {
     if (f->len >= outsz) return KDBX_ERR_NOMEM;

@@ -73,13 +73,15 @@ void tbuf_free(tbuf *t)
 /* ---------------- XML ---------------- */
 
 enum { T_OTHER, T_GROUP, T_ENTRY, T_HISTORY, T_STRING, T_KEY, T_VALUE, T_UUID, T_NAME, T_TAGS,
-       T_TIMES, T_EXPIRY, T_EXPIRES, T_ROOT, T_META, T_RB_ENABLED, T_RB_UUID };
+       T_TIMES, T_EXPIRY, T_EXPIRES, T_ROOT, T_META, T_RB_ENABLED, T_RB_UUID, T_AUTOTYPE, T_DEFSEQ, T_ENABLED, T_GDEFSEQ };
 
 static const char *const tag_names[] = {
     [T_GROUP] = "Group", [T_ENTRY] = "Entry", [T_HISTORY] = "History", [T_STRING] = "String",
     [T_KEY] = "Key", [T_VALUE] = "Value", [T_UUID] = "UUID", [T_NAME] = "Name", [T_TAGS] = "Tags",
     [T_TIMES] = "Times", [T_EXPIRY] = "ExpiryTime", [T_EXPIRES] = "Expires", [T_ROOT] = "Root",
     [T_META] = "Meta", [T_RB_ENABLED] = "RecycleBinEnabled", [T_RB_UUID] = "RecycleBinUUID",
+    [T_AUTOTYPE] = "AutoType", [T_DEFSEQ] = "DefaultSequence", [T_ENABLED] = "Enabled",
+    [T_GDEFSEQ] = "DefaultAutoTypeSequence",
 };
 
 static int tag_id(const char *name)
@@ -133,7 +135,7 @@ static kdbx_err elem_start(xml_index *xi)
     if (t == T_GROUP && (parent == T_ROOT || parent == T_GROUP)) {
         kdbx_group *g = arena_alloc(&db->a, sizeof *g);
         if (!g) return KDBX_ERR_NOMEM;
-        g->name = "";
+        g->name = g->autotype = "";
         g->parent = xi->group;
         *(db->groups ? &db->groups_tail->next : &db->groups) = g;
         db->groups_tail = xi->group = g;
@@ -141,7 +143,7 @@ static kdbx_err elem_start(xml_index *xi)
         kdbx_entry *e = arena_alloc(&db->a, sizeof *e);
         if (!e) return KDBX_ERR_NOMEM;
         e->group = xi->group;
-        e->title = e->username = e->url = e->tags = "";
+        e->title = e->username = e->url = e->tags = e->autotype = "";
         xi->entry = e;
         xi->fields_tail = NULL;
     } else if (t == T_STRING && parent == T_ENTRY && xi->entry) {
@@ -191,6 +193,12 @@ static kdbx_err elem_end(xml_index *xi)
         db->recycle_enabled = xi->text.len == 4 && !memcmp(xi->text.p, "True", 4);
     } else if (parent == T_META && t == T_RB_UUID) {
         if (b64(xi, db->recycle_uuid, 16) < 0) memset(db->recycle_uuid, 0, 16);
+    } else if (parent == T_GROUP && xi->group && t == T_GDEFSEQ) {
+        if (!(xi->group->autotype = text_dup(xi))) err = KDBX_ERR_NOMEM;
+    } else if (e && parent == T_AUTOTYPE && grand == T_ENTRY && t == T_DEFSEQ) {
+        if (!(e->autotype = text_dup(xi))) err = KDBX_ERR_NOMEM;
+    } else if (e && parent == T_AUTOTYPE && grand == T_ENTRY && t == T_ENABLED) {
+        e->autotype_off = xi->text.len == 5 && !memcmp(xi->text.p, "False", 5);
     } else if (parent == T_GROUP && xi->group && (t == T_NAME || t == T_UUID)) {
         if (t == T_NAME) {
             if (!(xi->group->name = text_dup(xi))) err = KDBX_ERR_NOMEM;

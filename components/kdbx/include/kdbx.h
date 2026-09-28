@@ -38,6 +38,7 @@ void kdbx_key_wipe(kdbx_key *k);
 typedef struct kdbx_group {
     struct kdbx_group *next, *parent;
     const char *name;
+    const char *autotype;   /* DefaultAutoTypeSequence, "" = inherit */
     uint8_t uuid[16];
 } kdbx_group;
 
@@ -54,6 +55,8 @@ typedef struct kdbx_entry {
     const kdbx_group *group;
     kdbx_field *fields;
     const char *title, *username, *url, *tags; /* never NULL ("" if missing or protected) */
+    const char *autotype;   /* AutoType/DefaultSequence, "" = inherit from groups */
+    bool autotype_off;      /* AutoType/Enabled = False */
     int64_t expiry;         /* unix seconds, valid if expires */
     bool expires;
     uint8_t uuid[16];
@@ -67,6 +70,8 @@ void kdbx_close(kdbx_db *db); /* wipes everything; NULL ok */
 const kdbx_entry *kdbx_entries(const kdbx_db *db);
 const kdbx_group *kdbx_groups(const kdbx_db *db);
 const kdbx_field *kdbx_field_get(const kdbx_entry *e, const char *key);
+/* Entry's auto-type sequence: its own, else the nearest group's, else fallback. */
+const char *kdbx_autotype(const kdbx_entry *e, const char *fallback);
 
 /* Copy a field's plaintext into out (NUL-terminated), decrypting if protected.
  * Caller wipes out (mbedtls_platform_zeroize) right after use. */
