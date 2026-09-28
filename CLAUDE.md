@@ -35,16 +35,20 @@ Work one stage per session; update `PROGRESS.md` at the end.
 
 ## Layout
 
-- `components/kdbx/` — portable C (mbedTLS + tinfl only, no ESP-IDF deps). `yxml/` is vendored.
-- `tests/host/` — CMake host build + acceptance test; `asan.sh` for ASan/LSan/UBSan (Linux/WSL).
-- `tools/` — `make_test_dbs.py` (test DBs), `ref_dump.py` (reference values, `testdata/*.expected`).
+- `components/` — portable C, no ESP-IDF deps (mbedTLS + tinfl): `kdbx` (read, save, create;
+  `yxml/` vendored), `totp`, `gen` (+ EFF wordlist), `search`, `typing` (layouts, auto-type),
+  `strength`. Platform supplies `cp_random()`.
+- `tests/host/` — CMake host build, one test per component; `asan.sh` (ASan/LSan/UBSan, Linux/WSL).
+- `tools/` — `make_test_dbs.py`, `ref_dump.py` (reference values), `check_saved.py` (saved files
+  vs pykeepass + keepassxc-cli), `gen_wordlist.py`.
 - `testdata/` — test databases only (passwords in `tools/ref_dump.py`, not secrets).
 
 ## Host build
 
 ```
 cmake -S tests/host -B tests/host/build -G Ninja -DCMAKE_TLS_CAINFO=<ca-bundle.crt>
-cmake --build tests/host/build && tests/host/build/test_kdbx testdata
+cmake --build tests/host/build && (cd tests/host/build && ctest)
+python tools/check_saved.py                   # after ctest (reads build/save_work)
 wsl sh /mnt/d/cardpass/tests/host/asan.sh     # after the configure above
 ```
 `CMAKE_TLS_CAINFO` is only needed where CMake has no CA store (this Windows box: copy

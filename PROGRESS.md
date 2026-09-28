@@ -1,43 +1,94 @@
 # Progress
 
-## Stage 0 — Host core: DONE (2026-09-28)
+Device (Cardputer ADV) not in hand yet (2026-09-28): everything that can be built and
+tested on a PC is done first. All host suites: `ctest` in `tests/host/build` (7 suites) and
+`tests/host/asan.sh` (ASan + LeakSanitizer + UBSan, WSL); saved/created files are also
+checked by independent readers with `python tools/check_saved.py`.
 
-**Done**
-- `components/kdbx`: streaming KDBX 4.x unlock: header → AES-KDF → header HMAC (wrong-key check)
-  → HMAC blocks → AES-256-CBC / ChaCha20 → gzip (tinfl, 32 KB window) → inner header
-  (attachments skipped) → yxml → compact index. Key files: XML v1/v2, raw 32, hex 64, hash-of-anything.
-- Index: groups (name, parent, UUID) and entries (UUID, group, all String fields, tags, expiry).
-  Protected values stay as raw ciphertext + inner ChaCha20 keystream offset; `kdbx_reveal()`
-  seeks and decrypts one value on demand. History is parsed only to count keystream bytes.
-- All index memory lives in a chunked arena (never realloc'd), wiped + freed by `kdbx_close()`.
-- `tools/make_test_dbs.py`, `tools/ref_dump.py` (manual crypto, checked against each file's HMACs).
+## Stage 0 — Host core: DONE
+- `components/kdbx`: streaming KDBX 4.x unlock (header → AES-KDF → header HMAC → HMAC blocks →
+  AES-256-CBC / ChaCha20 → tinfl → inner header → yxml → compact index). Key files: XML v1/v2,
+  raw 32, hex 64, hash-of-anything.
+- Index: groups, entries (all String fields, tags, expiry, auto-type sequence), recycle-bin
+  settings. Protected values stay ciphertext + inner keystream offset; `kdbx_reveal()` decrypts one.
+- Chunked arena (never realloc'd), wiped by `kdbx_close()`.
+- Tested: 18 manifest cases (AES/ChaCha20, pykeepass + KeePassXC-written, UTF-8 password, all key
+  file formats, 1,000 entries, multi-block), intermediates vs `tools/ref_dump.py`, Argon2 / KDBX 3.1
+  rejected cleanly, tamper detection.
 
-**Tested** (`tests/host/test_kdbx.c`, 18 manifest cases + tamper/key-file checks)
-- AES and ChaCha20, pykeepass-written and KeePassXC-resaved, UTF-8 password, all 5 key-file
-  formats, key-file-only, 1,000 entries, multi-block (1.5 MB attachment).
-- Composite key, transformed key, master key, HMAC base key match the reference script;
-  every entry / field (incl. protected ones) / tag / expiry matches pykeepass.
-- Wrong password and missing key file fail at the header HMAC; Argon2 → clean KDF error;
-  KDBX 3.1 (hand-made + real KeePassXC `db-create`) → clean version error;
-  damaged header / payload → "corrupted"; bad XML v2 key-file hash rejected.
-- Clean under ASan + LeakSanitizer + UBSan (WSL gcc, `tests/host/asan.sh`).
+## Stage 2 — Output methods: logic DONE, hardware TODO
+- `components/typing`: layouts US, UK, FR AZERTY, DE QWERTZ (strings per key level, dead keys,
+  compose table); auto-type parser/executor (`{USERNAME}`… `{S:Name}`, `{TOTP}`, special keys with
+  repeat, `{DELAY n}`, `{DELAY=n}`, `+ ^ %` modifiers, `~`, literal escapes). The whole sequence
+  is checked before the first keystroke: untypeable characters / unknown placeholders type nothing.
+- Tested: all printable ASCII on every layout, layout accents, specific keystrokes, sequences.
+- TODO on device: USB HID / BLE HID, keystroke delay, layout test string on real hosts
+  (dead keys follow Windows; Linux/macOS may differ), QR code.
 
-**Deviations from PLAN.md (deliberate)**
-- No `crypto/` wrapper component: `kdbx` calls mbedTLS directly (ESP-IDF's mbedTLS already
-  routes AES/SHA to hardware). Add a wrapper only if a second backend appears.
-- Index stores decoded ciphertext, not base64 (25% less RAM). It also keeps notes and custom
-  fields so the entry view needs no second pass over the file.
-- Decrypted data is parsed before its 1 MiB block's HMAC is verified (can't buffer 1 MiB);
-  on any failure everything is wiped and no index is returned.
+## Stage 3 — TOTP: logic DONE, time keeping TODO
+- `components/totp`: RFC 6238/4226 (SHA-1/256/512, 6–8 digits, periods), `otpauth://`, KeePass 2
+  `TimeOtp-*` (UTF-8/hex/base32/base64 secrets), Steam.
+- Tested: RFC 6238 vectors, all encodings, matches `keepassxc-cli show -t` live.
+- TODO on device: manual time set, NTP, Grove RTC, validity tracking.
 
-**Known limits / notes**
-- gzip header with optional fields (FNAME etc.) is rejected — KeePass/KeePassXC never write them.
-- Inner stream must be ChaCha20 (KDBX 4 default); Salsa20 → cipher error.
-- `kdbx_aes_kdf` runs both halves on one core; Stage 1 benchmarks splitting them across cores
-  and hardware vs software AES (ESP-IDF's per-call AES HW locking may be slow for 1-block calls).
-- Index RAM grows with notes size; measure the high-water mark on device (Stage 1/9).
-- Host Windows gcc (WinLibs) has no ASan; sanitizer runs use WSL.
+## Stage 1 pieces done on host
+- `components/search`: accent/case-insensitive scored subsequence search over title/user/URL/tags,
+  multi-term, favorites + recent boost, empty query = home order. 0.4 ms / query / 1,000 entries
+  on the PC (device estimate 8–16 ms, target 30 ms).
 
-**Next step:** Stage 1 — ESP-IDF project, display, keyboard, SD, DB picker, unlock on device
-(add `components/kdbx/CMakeLists.txt` for IDF; ROM `tinfl` via `rom/miniz.h`, enable
-`CONFIG_MBEDTLS_CHACHA20_C`).
+## Stage 5 — Editing: core DONE, UI TODO
+- `components/kdbx/save.c`: streaming rewrite. Original re-read and turned into XML events;
+  unknown XML, history, attachments, custom data carried over; protected values re-encrypted with
+  a fresh inner stream key; new master seed + IV every save (KDF seed kept unless rekeying —
+  avoids a 2–4 s KDF per save; transformed key cached in RAM while unlocked, wiped on close).
+- Edits: entry create / update (old version → History, `HistoryMaxItems` enforced) / move /
+  delete; group create / rename / move / delete; `kdbx_delete_entry/group()` give KeePass
+  semantics (recycle bin, created on demand; permanent + DeletedObjects when already in it or
+  disabled). Moves use a first capture pass. Master key / rounds change.
+- Safe save: `.tmp` → verify by re-opening → original kept as `.bak` → rename;
+  `kdbx_recover()` finishes an interrupted rename. Failed saves leave the original byte-identical.
+- Output compression: own LZ77 + fixed-Huffman deflate (~16 KB RAM; miniz's tdefl needs ~300 KB),
+  stored-block fallback for incompressible data. big1000: 51 KB (KeePassXC) → 100 KB (ours).
+- Tested: no-op saves of all test DBs identical per pykeepass XML, attachments and KeePassXC
+  XML export; every edit type; history content; DeletedObjects; moved entry keeps its attachment;
+  rekey; recovery; ChaCha20 and multi-block files.
+- TODO: generator/editor UI, favorites toggle UI (= tags edit), device RAM check during save.
+
+## Stage 6 — Create database: DONE (host)
+- `kdbx_create()` (AES or ChaCha20, AES-KDF rounds, password and/or key file, recycle bin on),
+  `kdbx_keyfile_create()` (KeePass XML v2). Tested with pykeepass and KeePassXC.
+  KeePass 2 not available here: check once on a PC with KeePass 2.
+
+## Stage 5 generators: DONE
+- `components/gen`: password (sets, look-alikes, require-each, exact entropy incl. inclusion–
+  exclusion) and passphrase (EFF long list embedded front-coded, 33 KB; separators, caps,
+  digit/symbol appended to a random word; exact entropy; ambiguity warning). Rejection sampling.
+
+## Stage 6b — Strength: estimator DONE, audit UI TODO
+- `components/strength`: cheapest split into common words (leet/caps), EFF words, sequences,
+  repeats, keyboard walks, years, brute force. Same Weak/Strong label as KeePassXC on 19 reference
+  passwords (numbers from `keepassxc-cli estimate`), incl. password1 / azerty123 / Summer2024!.
+
+## Deviations from PLAN.md (deliberate)
+- No `crypto/` wrapper: mbedTLS is called directly (ESP-IDF's routes to hardware).
+- Index stores decoded ciphertext (not base64) and all string fields (entry view needs no re-read).
+- Decrypted data is parsed before its 1 MiB block's HMAC is checked (can't buffer 1 MiB);
+  any failure wipes everything.
+- Passphrase digit/symbol are appended to a random word (not a random character position) so
+  the entropy stays exact.
+- Platform RNG is one function, `cp_random()`, used by kdbx and gen (device: `esp_fill_random`
+  inside `bootloader_random_enable/disable`).
+
+## Known limits
+- gzip with optional header fields rejected (never written by KeePass/KeePassXC).
+- Inner stream must be ChaCha20 (KDBX 4 default).
+- Save: Entry/Group must have UUID as first child (KeePass always writes it so);
+  `PreviousParentGroup` / `LocationChanged` not updated on moves; `HistoryMaxSize` not enforced;
+  modifier groups `+(abc)` in auto-type unsupported (reported, never typed).
+- Moving a large group holds its subtree in RAM during save.
+- Host Windows gcc has no ASan: sanitizer runs use WSL.
+
+## Next step
+Stage 1 on the device when it arrives: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
+ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),
+display, keyboard, SD, DB picker, unlock timing, AES-KDF benchmark (HW vs SW, 1 vs 2 cores).
