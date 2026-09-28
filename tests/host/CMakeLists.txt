@@ -33,3 +33,10 @@ target_link_libraries(test_kdbx kdbx)
 
 enable_testing()
 add_test(NAME kdbx COMMAND test_kdbx ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata)
+
+add_library(totp STATIC ../../components/totp/totp.c)
+target_include_directories(totp PUBLIC ../../components/totp/include)
+target_link_libraries(totp PUBLIC mbedcrypto)
+add_executable(test_totp test_totp.c)
+target_link_libraries(test_totp totp)
+add_test(NAME totp COMMAND test_totp)
