@@ -89,5 +89,18 @@ if KPXC:
     orig = PyKeePass(str(TD / "multiblock.kdbx"), password="test")
     check(mb.binaries[0] == orig.binaries[0], "multiblock attachment")
 
+# ---- databases created by kdbx_create (Stage 6) ----
+kf = WD / "created.keyx"
+for name, pw, use_kf, cipher in [("created_aes.kdbx", "créé", False, "aes256"),
+                                 ("created_chacha_kf.kdbx", "test", True, "chacha20"),
+                                 ("created_kf_only.kdbx", None, True, "aes256")]:
+    kp = PyKeePass(str(WD / name), password=pw, keyfile=str(kf) if use_kf else None)
+    check(kp.encryption_algorithm == cipher and kp.kdf_algorithm == "aeskdf", f"{name}: {kp.encryption_algorithm}")
+    check(kp.root_group.name == "My Vault" and kp.find_entries(title="First", first=True).password == "pw1", name)
+    if KPXC:
+        rc, xml = kpxc_export(WD / name, pw, kf if use_kf else None)
+        check(rc == 0 and "First" in xml, f"{name}: KeePassXC")
+    print("created ok" if not fails else "created", name)
+
 print("check_saved:", fails, "failures")
 sys.exit(fails != 0)

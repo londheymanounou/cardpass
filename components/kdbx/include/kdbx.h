@@ -122,5 +122,15 @@ size_t kdbx_delete_group(const kdbx_db *db, const kdbx_group *g, kdbx_edit out[2
 kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
                    const kdbx_key *newkey, uint64_t rounds, kdbx_db **newdb);
 
+enum { KDBX_AES256, KDBX_CHACHA20 };
+
+/* New KDBX 4.0 database at path (must not exist): empty root group `name`,
+ * recycle bin enabled, AES-KDF with `rounds`. Runs the KDF. *db: the new database. */
+kdbx_err kdbx_create(const char *path, int cipher, uint64_t rounds, const kdbx_key *key, const char *name,
+                     int64_t now, kdbx_db **db);
+
+/* Write a new random KeePass XML v2 key file (32-byte key). */
+kdbx_err kdbx_keyfile_create(FILE *f);
+
 /* Finish an interrupted save (path missing, path.tmp complete). Call before listing files. */
 void kdbx_recover(const char *path);

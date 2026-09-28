@@ -335,6 +335,45 @@ int main(int argc, char **argv)
         kdbx_close(db);
     }
 
+    /* ---- 3. create databases (Stage 6) ---- */
+    char kfp[512];
+    path_in(kfp, wdir, "created.keyx");
+    remove(kfp);
+    FILE *kf = fopen(kfp, "wb");
+    CHECK(kf && kdbx_keyfile_create(kf) == KDBX_OK, "keyfile create");
+    if (kf) fclose(kf);
+    const struct { const char *name; int cipher; const char *pw; bool keyfile; } cr[] = {
+        {"created_aes.kdbx", KDBX_AES256, "créé", false},
+        {"created_chacha_kf.kdbx", KDBX_CHACHA20, "test", true},
+        {"created_kf_only.kdbx", KDBX_AES256, NULL, true},
+    };
+    for (size_t i = 0; i < sizeof cr / sizeof *cr; i++) {
+        path_in(path, wdir, cr[i].name);
+        remove(path);
+        kdbx_key k;
+        FILE *kff = cr[i].keyfile ? fopen(kfp, "rb") : NULL;
+        CHECK(kdbx_key_init(&k, cr[i].pw, cr[i].pw ? strlen(cr[i].pw) : 0, kff) == KDBX_OK, "key");
+        if (kff) fclose(kff);
+        CHECK((e = kdbx_create(path, cr[i].cipher, 1500, &k, "My Vault", NOW, &db)) == KDBX_OK, "create %s: %s",
+              cr[i].name, kdbx_strerror(e));
+        kdbx_db *dup;
+        CHECK(kdbx_create(path, cr[i].cipher, 1500, &k, "x", NOW, &dup) == KDBX_ERR_IO, "create overwrote a file");
+        kdbx_key_wipe(&k);
+        if (!db) continue;
+        CHECK(!kdbx_entries(db) && kdbx_root_group(db) && !strcmp(kdbx_root_group(db)->name, "My Vault") &&
+              db->recycle_enabled, "empty new db");
+        kdbx_edit_field fc[] = {{"Title", "First", false}, {"UserName", "me", false}, {"Password", "pw1", true},
+                                {"URL", "", false}, {"Notes", "", false}};
+        kdbx_edit ce = {.op = KDBX_EDIT_ENTRY, .create = true, .fields = fc, .nfields = 5};
+        kdbx_new_uuid(ce.uuid);
+        memcpy(ce.parent, kdbx_root_group(db)->uuid, 16);
+        CHECK((e = save(&db, path, &ce, 1)) == KDBX_OK, "add to created: %s", kdbx_strerror(e));
+        CHECK(field_is(db, by_title(db, "First"), "Password", "pw1", 1), "created db entry");
+        kdbx_close(db);
+        CHECK(open_key(path, cr[i].pw, cr[i].keyfile ? kfp : NULL, &db) == KDBX_OK, "reopen created %s", cr[i].name);
+        kdbx_close(db);
+    }
+
     printf("save: %d failures\n", failures);
     return failures != 0;
 }

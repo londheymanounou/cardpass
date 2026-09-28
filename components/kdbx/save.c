@@ -1049,6 +1049,75 @@ static kdbx_err run_pass(saver *s, FILE *in, uint8_t tk[32], kdbx_header *h, pro
     return err;
 }
 
+/* ======================= file output ======================= */
+
+static void out_init(out_t *o)
+{
+    mbedtls_md_init(&o->md);
+    mbedtls_aes_init(&o->aes);
+    mbedtls_chacha20_init(&o->chacha);
+    mbedtls_chacha20_init(&o->inner);
+}
+
+static void out_free(out_t *o)
+{
+    mbedtls_md_free(&o->md);
+    mbedtls_aes_free(&o->aes);
+    mbedtls_chacha20_free(&o->chacha);
+    mbedtls_chacha20_free(&o->inner);
+    mbedtls_platform_zeroize(o, sizeof *o);
+}
+
+/* Header, HMACs, cipher setup, gzip header and inner header (new stream key).
+ * Attachments and XML follow through gz_put(). */
+static kdbx_err out_begin(out_t *o, FILE *f, const kdbx_header *nh, const uint8_t tk[32])
+{
+    uint8_t master[32], sums[64], ik[64], h512[64];
+    kdbx_derive(nh, tk, master, o->hmac_base);
+    mbedtls_sha256(nh->raw, nh->rawlen, sums, 0);
+    kdbx_header_hmac(nh, o->hmac_base, sums + 32);
+    o->f = f;
+    o->cipher = nh->cipher;
+    memcpy(o->iv, nh->iv, nh->ivlen);
+    if (o->cipher == CIPHER_AES256) {
+        mbedtls_aes_setkey_enc(&o->aes, master, 256);
+    } else {
+        mbedtls_chacha20_setkey(&o->chacha, master);
+        mbedtls_chacha20_starts(&o->chacha, nh->iv, 0);
+    }
+    mbedtls_platform_zeroize(master, sizeof master);
+    if (mbedtls_md_setup(&o->md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1)) return KDBX_ERR_NOMEM;
+    if (fwrite(nh->raw, 1, nh->rawlen, f) != nh->rawlen || fwrite(sums, 1, 64, f) != 64) return KDBX_ERR_IO;
+
+    static const uint8_t gzh[10] = {0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff};
+    static const uint8_t f1[9] = {1, 4, 0, 0, 0, 3, 0, 0, 0}, f2[5] = {2, 64, 0, 0, 0};
+    enc_put(o, gzh, 10);
+    cp_random(ik, 64);
+    mbedtls_sha512(ik, 64, h512, 0);
+    mbedtls_chacha20_setkey(&o->inner, h512);
+    mbedtls_chacha20_starts(&o->inner, h512 + 32, 0);
+    gz_put(o, f1, 9);
+    gz_put(o, f2, 5);
+    gz_put(o, ik, 64);
+    mbedtls_platform_zeroize(h512, sizeof h512);
+    mbedtls_platform_zeroize(ik, sizeof ik);
+    return o->err;
+}
+
+/* Finish the payload and close the file (always closed). */
+static kdbx_err out_end(out_t *o)
+{
+    out_finish(o);
+    kdbx_err err = o->err;
+    if (!err && (fflush(o->f) || ferror(o->f))) err = KDBX_ERR_IO;
+#ifdef ESP_PLATFORM
+    if (!err) fsync(fileno(o->f));
+#endif
+    if (fclose(o->f) && !err) err = KDBX_ERR_IO;
+    o->f = NULL;
+    return err;
+}
+
 /* ======================= header ======================= */
 
 /* New header from the original: fresh master seed and IV (and KDF seed when
@@ -1219,19 +1288,13 @@ kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, 
     bool *appl = calloc(nedits + 1, sizeof *appl);
     tbuf *cap = calloc(nedits + 1, sizeof *cap);
     int *capd = calloc(nedits + 1, sizeof *capd);
-    uint8_t tk[32], tk_new[32], master[32], sums[64], ik[64];
+    uint8_t tk[32], tk_new[32];
     FILE *in = NULL, *out = NULL;
     bool renaming = false;
     kdbx_err err = KDBX_ERR_NOMEM;
 
     *newdb = NULL;
-    memset(ik, 0, sizeof ik);
-    if (o) {
-        mbedtls_md_init(&o->md);
-        mbedtls_aes_init(&o->aes);
-        mbedtls_chacha20_init(&o->chacha);
-        mbedtls_chacha20_init(&o->inner);
-    }
+    if (o) out_init(o);
     if (!tmp || !bak || !s || !o || !h || !nh || !appl || !cap || !capd) goto done;
     if (!valid_edits(db, edits, nedits, rounds, newkey)) { err = KDBX_ERR_EDIT; goto done; }
     snprintf(tmp, pl + 5, "%s.tmp", path);
@@ -1266,49 +1329,15 @@ kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, 
     if ((err = build_header(h, nh, newkey != NULL, rounds)) != KDBX_OK) goto done;
     if (newkey) kdbx_aes_kdf(nh->kdf_seed, nh->rounds, newkey->composite, tk_new);
     else memcpy(tk_new, tk, 32);
-    kdbx_derive(nh, tk_new, master, o->hmac_base);
-    mbedtls_sha256(nh->raw, nh->rawlen, sums, 0);
-    kdbx_header_hmac(nh, o->hmac_base, sums + 32);
-
     if (!(out = fopen(tmp, "wb"))) { err = KDBX_ERR_IO; goto done; }
-    if (fwrite(nh->raw, 1, nh->rawlen, out) != nh->rawlen || fwrite(sums, 1, 64, out) != 64) { err = KDBX_ERR_IO; goto done; }
-    o->f = out;
-    o->cipher = nh->cipher;
-    if (mbedtls_md_setup(&o->md, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1)) { err = KDBX_ERR_NOMEM; goto done; }
-    memcpy(o->iv, nh->iv, nh->ivlen);
-    if (o->cipher == CIPHER_AES256) {
-        mbedtls_aes_setkey_enc(&o->aes, master, 256);
-    } else {
-        mbedtls_chacha20_setkey(&o->chacha, master);
-        mbedtls_chacha20_starts(&o->chacha, nh->iv, 0);
-    }
-
-    /* payload: gzip header, inner header (new ChaCha20 stream key), attachments, XML */
-    static const uint8_t gzh[10] = {0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff};
-    enc_put(o, gzh, 10);
-    uint8_t f1[9] = {1, 4, 0, 0, 0, 3, 0, 0, 0}, f2[5] = {2, 64, 0, 0, 0}, h512[64];
-    cp_random(ik, 64);
-    mbedtls_sha512(ik, 64, h512, 0);
-    mbedtls_chacha20_setkey(&o->inner, h512);
-    mbedtls_chacha20_starts(&o->inner, h512 + 32, 0);
-    mbedtls_platform_zeroize(h512, sizeof h512);
-    gz_put(o, f1, 9);
-    gz_put(o, f2, 5);
-    gz_put(o, ik, 64);
-
+    if ((err = out_begin(o, out, nh, tk_new)) != KDBX_OK) goto done;
     s->pass2 = true;
     if ((err = run_pass(s, in, tk, h, proc2)) != KDBX_OK) goto done;
     for (size_t i = 0; i < nedits; i++)
         if (!appl[i]) { err = KDBX_ERR_EDIT; goto done; }
-    out_finish(o);
-    if ((err = o->err) != KDBX_OK) goto done;
-    if (fflush(out) || ferror(out)) { err = KDBX_ERR_IO; goto done; }
-#ifdef ESP_PLATFORM
-    fsync(fileno(out));
-#endif
-    int rc = fclose(out);
+    err = out_end(o);
     out = NULL;
-    if (rc) { err = KDBX_ERR_IO; goto done; }
+    if (err) goto done;
     fclose(in);
     in = NULL;
 
@@ -1338,17 +1367,147 @@ done:
     }
     if (cap)
         for (size_t i = 0; i < nedits; i++) tbuf_free(&cap[i]);
-    if (o) {
-        mbedtls_md_free(&o->md);
-        mbedtls_aes_free(&o->aes);
-        mbedtls_chacha20_free(&o->chacha);
-        mbedtls_chacha20_free(&o->inner);
-        mbedtls_platform_zeroize(o, sizeof *o);
-    }
+    if (o) out_free(o);
     mbedtls_platform_zeroize(tk, sizeof tk);
     mbedtls_platform_zeroize(tk_new, sizeof tk_new);
-    mbedtls_platform_zeroize(master, sizeof master);
-    mbedtls_platform_zeroize(ik, sizeof ik);
     free(tmp); free(bak); free(s); free(o); free(h); free(nh); free(appl); free(cap); free(capd);
+    return err;
+}
+
+/* ======================= create ======================= */
+
+static void write_group_open(out_t *o, const uint8_t uuid[16], const char *name, const char *now_b64)
+{
+    char u[32];
+    uuid_b64(uuid, u);
+    xw_start(o, "Group", NULL, 0);
+    xw_el(o, "UUID", u);
+    xw_el(o, "Name", name);
+    xw_el(o, "Notes", "");
+    xw_el(o, "IconID", "48");
+    xw_start(o, "Times", NULL, 0);
+    const char *tn[] = {"LastModificationTime", "CreationTime", "LastAccessTime", "ExpiryTime"};
+    for (int i = 0; i < 4; i++) xw_el(o, tn[i], now_b64);
+    xw_el(o, "Expires", "False");
+    xw_el(o, "UsageCount", "0");
+    xw_el(o, "LocationChanged", now_b64);
+    xw_end(o, "Times");
+    xw_el(o, "IsExpanded", "True");
+    xw_el(o, "DefaultAutoTypeSequence", "");
+    xw_el(o, "EnableAutoType", "null");
+    xw_el(o, "EnableSearching", "null");
+    xw_el(o, "LastTopVisibleEntry", "AAAAAAAAAAAAAAAAAAAAAA==");
+}
+
+kdbx_err kdbx_create(const char *path, int cipher, uint64_t rounds, const kdbx_key *key, const char *name,
+                     int64_t now, kdbx_db **db)
+{
+    static const char ZERO_UUID[] = "AAAAAAAAAAAAAAAAAAAAAA==";
+    size_t pl = strlen(path);
+    char *tmp = malloc(pl + 5), nb[16];
+    out_t *o = calloc(1, sizeof *o);
+    kdbx_header *tpl = calloc(1, sizeof *tpl), *nh = malloc(sizeof *nh);
+    uint8_t tk[32], root[16];
+    FILE *f = NULL;
+    kdbx_err err = KDBX_ERR_NOMEM;
+
+    *db = NULL;
+    if (o) out_init(o);
+    if (!tmp || !o || !tpl || !nh) goto done;
+    if (!rounds || (cipher != KDBX_AES256 && cipher != KDBX_CHACHA20)) { err = KDBX_ERR_EDIT; goto done; }
+    if ((f = fopen(path, "rb"))) { fclose(f); f = NULL; err = KDBX_ERR_IO; goto done; } /* never overwrite */
+    snprintf(tmp, pl + 5, "%s.tmp", path);
+
+    /* template header; build_header() fills seeds, IV and KDF parameters */
+    uint8_t *r = tpl->raw;
+    size_t n = 0;
+    const uint8_t sig[12] = {0x03, 0xd9, 0xa2, 0x9a, 0x67, 0xfb, 0x4b, 0xb5, 0, 0, 4, 0};
+    memcpy(r, sig, 12);
+    n = 12;
+    size_t ivlen = cipher == KDBX_AES256 ? 16 : 12;
+    const struct { uint8_t id; uint32_t len; const void *d; } fl[] = {
+        {2, 16, cipher == KDBX_AES256 ? KDBX_UUID_AES256 : KDBX_UUID_CHACHA20}, {3, 4, NULL}, {4, 32, NULL},
+        {7, (uint32_t)ivlen, NULL}, {11, 0, NULL}, {0, 4, "\r\n\r\n"}};
+    for (size_t i = 0; i < sizeof fl / sizeof *fl; i++) {
+        r[n] = fl[i].id;
+        put_le32(r + n + 1, fl[i].len);
+        if (fl[i].d) memcpy(r + n + 5, fl[i].d, fl[i].len);
+        n += 5 + fl[i].len;
+    }
+    tpl->rawlen = n;
+    tpl->cipher = cipher;
+    tpl->ivlen = ivlen;
+    if ((err = build_header(tpl, nh, true, rounds)) != KDBX_OK) goto done;
+    kdbx_aes_kdf(nh->kdf_seed, nh->rounds, key->composite, tk);
+
+    if (!(f = fopen(tmp, "wb"))) { err = KDBX_ERR_IO; goto done; }
+    if ((err = out_begin(o, f, nh, tk)) != KDBX_OK) goto done;
+    f = NULL; /* owned by o now */
+    static const uint8_t end_field[5] = {0};
+    gz_put(o, end_field, 5);
+    xw_raw(o, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
+    time_b64(now, nb);
+    xw_start(o, "KeePassFile", NULL, 0);
+    xw_start(o, "Meta", NULL, 0);
+    xw_el(o, "Generator", "CardPass");
+    xw_el(o, "DatabaseName", name);
+    xw_el(o, "DatabaseNameChanged", nb);
+    xw_el(o, "DatabaseDescription", "");
+    xw_el(o, "DatabaseDescriptionChanged", nb);
+    xw_el(o, "DefaultUserName", "");
+    xw_el(o, "DefaultUserNameChanged", nb);
+    xw_el(o, "MaintenanceHistoryDays", "365");
+    xw_el(o, "Color", "");
+    xw_el(o, "MasterKeyChanged", nb);
+    xw_el(o, "MasterKeyChangeRec", "-1");
+    xw_el(o, "MasterKeyChangeForce", "-1");
+    xw_start(o, "MemoryProtection", NULL, 0);
+    xw_el(o, "ProtectTitle", "False");
+    xw_el(o, "ProtectUserName", "False");
+    xw_el(o, "ProtectPassword", "True");
+    xw_el(o, "ProtectURL", "False");
+    xw_el(o, "ProtectNotes", "False");
+    xw_end(o, "MemoryProtection");
+    xw_el(o, "CustomIcons", "");
+    xw_el(o, "RecycleBinEnabled", "True");
+    xw_el(o, "RecycleBinUUID", ZERO_UUID);
+    xw_el(o, "RecycleBinChanged", nb);
+    xw_el(o, "EntryTemplatesGroup", ZERO_UUID);
+    xw_el(o, "EntryTemplatesGroupChanged", nb);
+    xw_el(o, "LastSelectedGroup", ZERO_UUID);
+    xw_el(o, "LastTopVisibleGroup", ZERO_UUID);
+    xw_el(o, "HistoryMaxItems", "10");
+    xw_el(o, "HistoryMaxSize", "6291456");
+    xw_el(o, "SettingsChanged", nb);
+    xw_el(o, "CustomData", "");
+    xw_end(o, "Meta");
+    xw_start(o, "Root", NULL, 0);
+    kdbx_new_uuid(root);
+    write_group_open(o, root, name, nb);
+    xw_end(o, "Group");
+    xw_el(o, "DeletedObjects", "");
+    xw_end(o, "Root");
+    xw_end(o, "KeePassFile");
+    if ((err = out_end(o)) != KDBX_OK) goto done;
+
+    if (!(f = fopen(tmp, "rb"))) { err = KDBX_ERR_IO; goto done; }
+    err = kdbx_open_tk(f, NULL, tk, db);
+    fclose(f);
+    f = NULL;
+    if (!err && rename(tmp, path)) err = KDBX_ERR_IO;
+
+done:
+    if (f) fclose(f);
+    if (err) {
+        if (tmp && o && !o->f) remove(tmp);
+        kdbx_close(*db);
+        *db = NULL;
+    }
+    if (o) {
+        if (o->f) { fclose(o->f); if (tmp) remove(tmp); }
+        out_free(o);
+    }
+    mbedtls_platform_zeroize(tk, sizeof tk);
+    free(tmp); free(o); free(tpl); free(nh);
     return err;
 }

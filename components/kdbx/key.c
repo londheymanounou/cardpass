@@ -138,3 +138,20 @@ void kdbx_key_wipe(kdbx_key *k)
 {
     mbedtls_platform_zeroize(k, sizeof *k);
 }
+
+kdbx_err kdbx_keyfile_create(FILE *f)
+{
+    uint8_t key[32], sum[32];
+    char hex[65];
+    cp_random(key, 32);
+    mbedtls_sha256(key, 32, sum, 0);
+    for (int i = 0; i < 32; i++) snprintf(hex + 2 * i, 3, "%02X", key[i]);
+    int n = fprintf(f,
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<KeyFile>\n    <Meta>\n        <Version>2.0</Version>\n"
+                    "    </Meta>\n    <Key>\n        <Data Hash=\"%02X%02X%02X%02X\">\n"
+                    "            %.8s %.8s %.8s %.8s\n            %.8s %.8s %.8s %.8s\n        </Data>\n    </Key>\n</KeyFile>\n",
+                    sum[0], sum[1], sum[2], sum[3], hex, hex + 8, hex + 16, hex + 24, hex + 32, hex + 40, hex + 48, hex + 56);
+    mbedtls_platform_zeroize(key, sizeof key);
+    mbedtls_platform_zeroize(hex, sizeof hex);
+    return n > 0 && !ferror(f) ? KDBX_OK : KDBX_ERR_IO;
+}

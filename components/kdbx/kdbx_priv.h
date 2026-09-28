@@ -22,7 +22,8 @@ void tbuf_clear(tbuf *t); /* wipes contents, keeps capacity */
 void tbuf_free(tbuf *t);
 
 /* ---- outer header ---- */
-enum { CIPHER_AES256, CIPHER_CHACHA20 };
+enum { CIPHER_AES256 = KDBX_AES256, CIPHER_CHACHA20 = KDBX_CHACHA20 };
+extern const uint8_t KDBX_UUID_AES256[16], KDBX_UUID_CHACHA20[16];
 
 typedef struct {
     uint8_t raw[4096];        /* header bytes, for SHA-256 + HMAC */
