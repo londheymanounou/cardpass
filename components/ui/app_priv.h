@@ -122,7 +122,14 @@ void ap_view_key(app *a, uint32_t k, bool fn);
 void ap_view_draw(app *a, ui_strip *s, const char **hint);
 void ap_view_free(app *a);
 const char *ap_view_name(const app *a);
-void ap_row_bg(app *a, ui_strip *s, int y, int h, int i);   /* row background (+ selection highlight) */
+void ap_row_bg(app *a, ui_strip *s, int y, int h, int i);   /* row background (+ selection highlight, cross-faded) */
+int ap_row_weight(const app *a, int i);                     /* highlight strength 0..256 */
+void ap_sel_changed(app *a, int old);
+void ap_slide_apply(app *a, ui_strip *s);
+int ap_toast_offset(const app *a);
+void ap_anim_nav_check(app *a);
+void ap_anim_key(app *a);
+void ap_anim_tick(app *a, uint32_t now);
 void ap_drive_key(app *a, uint32_t k, bool fn);
 void ap_drive_draw(app *a, ui_strip *s, const char **hint);
 void ap_fido_key(app *a, uint32_t k, bool fn);

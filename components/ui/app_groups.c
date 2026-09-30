@@ -28,13 +28,6 @@ void ap_groups_free(app *a)
 static bool is_root(const app *a, const kdbx_group *g) { return g == kdbx_root_group(a->db); }
 static bool is_bin(const app *a, const kdbx_group *g) { return g == kdbx_recycle_bin(a->db); }
 
-static bool inside(const kdbx_group *g, const kdbx_group *anc)
-{
-    for (; g; g = g->parent)
-        if (g == anc) return true;
-    return false;
-}
-
 static void collect(struct app_groups *m, const kdbx_db *db, const kdbx_group *parent, int d, const kdbx_group *skip)
 {
     for (const kdbx_group *c = kdbx_groups(db); c; c = c->next) {

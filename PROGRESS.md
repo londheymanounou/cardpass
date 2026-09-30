@@ -192,13 +192,27 @@ checked by independent readers with `python tools/check_saved.py`.
   keyboard interrupt. CPU: DFS 240/80 MHz with a max-frequency lock held only while the screen is at
   full brightness; NO light sleep (TinyUSB would not survive it). Host-tested with stubbed backlight /
   shutdown / battery; the actual current draw is a device measurement.
-- **Size with USB + drive mode + Wi-Fi + power: 915 KB app (22.9%), static RAM 56 KB.**
+- **Change password / key file / unlock time**: current password re-verified against the file
+  (`kdbx_check_key`: KDF + header HMAC, no second index), new password (+ generated or kept key file),
+  unlock-time target from the benchmark; the old `.bak` is deleted (it still opens with the old
+  password). Found and fixed on the way: generated key file name `name.kdbx` -> `name.keyx`.
+- **Groups**: create, rename, move (tree chooser: never into itself/below itself, no no-op targets),
+  delete via the recycle bin (root and recycle bin protected); `M` in the entry view moves an entry.
+- **Attachment viewer**: Enter on a file row; first 16 KB as wrapped read-only text (16 KB, not 64: RAM),
+  binary refused, buffer wiped on exit/lock.
+- **Optional animations** (Settings -> Animations, default on): selection cross-fade, rows slide in
+  on entering a list/entry, toast slides up, backlight fades in the firmware. No framebuffer needed:
+  every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
+  below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
+  renders them to dist/animations.gif from the real drawing code.
+- **Size with everything: 926 KB app (23.2%), static RAM 56 KB.**
+- (earlier) Size with USB + drive mode + Wi-Fi + power: 915 KB app (22.9%), static RAM 56 KB.
 - (earlier) Size with USB + drive mode + Wi-Fi: 902 KB app (22.6% of the 3.9 MB partition), static RAM 55 KB**
   (Wi-Fi/lwIP driver state; freed when Wi-Fi is off). Before Wi-Fi: 538 KB / 33 KB. dist/CardPass.bin
   (launcher) and CardPass-full.bin (M5Burner, merged) come from tools/package.py; header validated.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
-- TODO: BLE HID, light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
+- TODO: Bluetooth typing (BLE HID), light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
 
 ## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its

@@ -516,8 +516,7 @@ void ap_edit_draw(app *a, ui_strip *s, const char **hint)
             ap_draw_row(a, s, r, "+", T->accent, "Add field", NULL, 0);
             continue;
         }
-        ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-        if (sel) ui_fill(s, 0, y, 2, h, T->accent);
+        ap_row_bg(a, s, y, h, r);
         const char *label = fi == -1 ? "Tags" : fi == 1 ? "User" : fi == 2 ? "Pass" : ed->key[fi];
         int sy = y + (h - ui_font_small.height) / 2, vx = PAD + LABEL_W;
         if (r == ed->editing) {

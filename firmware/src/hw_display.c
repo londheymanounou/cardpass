@@ -80,6 +80,16 @@ void hw_display_brightness(int pct)
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+void hw_display_fade(int pct, int ms)
+{
+    static bool installed;
+    if (!installed) { ledc_fade_func_install(0); installed = true; }
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, (uint32_t)(pct * 255 / 100), (uint32_t)ms);
+    ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT);
+}
+
 void hw_display_sleep(bool on)
 {
     cmd(on ? 0x28 : 0x29, NULL, 0);     /* DISPOFF / DISPON */

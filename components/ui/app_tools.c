@@ -103,7 +103,7 @@ void ap_menu_draw(app *a, ui_strip *s, const char **hint)
 
 /* ======================= settings ======================= */
 
-enum { S_THEME, S_FONT, S_REVEAL, S_AUTOLOCK, S_DIM, S_OFF, S_LAYOUT, S_DELAY, S_TZ, S_WEAK, S_EXPIRY, S_AUTOTYPE, S_COUNT };
+enum { S_THEME, S_FONT, S_REVEAL, S_AUTOLOCK, S_DIM, S_OFF, S_LAYOUT, S_DELAY, S_TZ, S_WEAK, S_EXPIRY, S_ANIM, S_AUTOTYPE, S_COUNT };
 static const int AUTOLOCK[] = {60, 120, 300, 600, 1800, 0};
 static const int DELAYS[] = {0, 4, 8, 15, 30, 60};
 static const int DIM_S[] = {0, 10, 20, 30, 60, 120};
@@ -133,6 +133,7 @@ static void settings_change(app *a, int d)
     switch (a->sel) {
     case S_THEME: c->light = !c->light; break;
     case S_FONT: c->large_font = !c->large_font; break;
+    case S_ANIM: c->animations = !c->animations; break;
     case S_REVEAL: c->reveal_toggle = !c->reveal_toggle; break;
     case S_AUTOLOCK: c->autolock_s = step_in(AUTOLOCK, 6, c->autolock_s, d); break;
     case S_DIM: c->dim_s = step_in(DIM_S, 6, c->dim_s, d); break;
@@ -180,7 +181,7 @@ void ap_settings_key(app *a, uint32_t k, bool fn)
 void ap_settings_draw(app *a, ui_strip *s, const char **hint)
 {
     static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Dim after", "Screen off", "Keyboard", "Key delay",
-                                        "Time zone", "Weak below", "Expiry warn", "Auto-type"};
+                                        "Time zone", "Weak below", "Expiry warn", "Animations", "Auto-type"};
     const cp_settings *c = &a->cfg;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     for (int i = a->top; i < S_COUNT && i < a->top + ap_visible(a); i++) {
@@ -188,6 +189,7 @@ void ap_settings_draw(app *a, ui_strip *s, const char **hint)
         switch (i) {
         case S_THEME: snprintf(v, sizeof v, "%s", c->light ? "Light" : "Dark"); break;
         case S_FONT: snprintf(v, sizeof v, "%s", c->large_font ? "Large" : "Small"); break;
+        case S_ANIM: snprintf(v, sizeof v, "%s", c->animations ? "On" : "Off"); break;
         case S_REVEAL: snprintf(v, sizeof v, "%s", c->reveal_toggle ? "Press R" : "Hold R"); break;
         case S_AUTOLOCK: if (c->autolock_s) snprintf(v, sizeof v, "%d min", c->autolock_s / 60); else snprintf(v, sizeof v, "Never"); break;
         case S_DIM: if (c->dim_s) snprintf(v, sizeof v, "%d s", c->dim_s); else snprintf(v, sizeof v, "Never"); break;
@@ -202,8 +204,7 @@ void ap_settings_draw(app *a, ui_strip *s, const char **hint)
         int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
         if (y + h <= s->y0 || y >= s->y0 + s->h) continue;
         bool sel = i == a->sel;
-        ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-        if (sel) ui_fill(s, 0, y, 2, h, T->accent);
+        ap_row_bg(a, s, y, h, i);
         ui_text(s, &ui_font_small, PAD + 2, y + (h - ui_font_small.height) / 2, names[i], T->dim, 72);
         if (sel && a->text_edit) ap_draw_field(a, s, 78, y, UI_W - 80, h, c->autotype, false, (int)strlen(c->autotype));
         else ui_text(s, F, 80, y + (h - F->height) / 2, v, sel ? T->sel_fg : T->fg, UI_W - 80 - PAD);
@@ -556,8 +557,7 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
         if (y + h <= s->y0 || y >= s->y0 + s->h) continue;
         bool sel = i == a->sel;
         if (i == C_CREATE) { ap_draw_row(a, s, i, ICON_CHECK, T->ok, "Create database", NULL, 0); continue; }
-        ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-        if (sel) ui_fill(s, 0, y, 2, h, T->accent);
+        ap_row_bg(a, s, y, h, i);
         ui_text(s, &ui_font_small, PAD + 2, y + (h - ui_font_small.height) / 2, names[i], T->dim, 60);
         char v[64];
         const char *b = NULL;

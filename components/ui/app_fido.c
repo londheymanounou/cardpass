@@ -52,8 +52,7 @@ void ap_fido_draw(app *a, ui_strip *s, const char **hint)
         int y = y0 + (int)i * h;
         bool sel = (int)i == a->sel;
         if (y + h <= s->y0 || y >= s->y0 + s->h) continue;
-        ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-        if (sel) ui_fill(s, 0, y, 2, h, T->accent);
+        ap_row_bg(a, s, y, h, (int)i);
         const char *name = a->fcreds[i].user_name[0] ? a->fcreds[i].user_name : "(no name)";
         int x = PAD * 2 + ui_text(s, F, PAD * 2, y + (h - F->height) / 2, ICON_KEY, T->dim, 16) + 4;
         ui_text(s, F, x, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, UI_W - x - PAD);

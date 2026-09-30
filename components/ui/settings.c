@@ -76,6 +76,7 @@ void cp_settings_wifi_save(cp_settings *s, const char *ssid, const char *pass)
 void cp_settings_default(cp_settings *s)
 {
     memset(s, 0, sizeof *s);
+    s->animations = true;
     s->autolock_s = 300;
     s->dim_s = 20;
     s->off_s = 45;
@@ -113,6 +114,7 @@ void cp_settings_parse(cp_settings *s, const char *text)
                 if (!strcmp(k, "theme")) s->light = !strcmp(v, "light");
                 else if (!strcmp(k, "font")) s->large_font = !strcmp(v, "large");
                 else if (!strcmp(k, "reveal")) s->reveal_toggle = !strcmp(v, "toggle");
+                else if (!strcmp(k, "anim")) s->animations = strcmp(v, "off") != 0;
                 else if (!strcmp(k, "autolock")) num(v, 0, 86400, &s->autolock_s);
                 else if (!strcmp(k, "brightness")) num(v, 5, 100, &s->brightness);
                 else if (!strcmp(k, "dim")) num(v, 0, 3600, &s->dim_s);
@@ -144,10 +146,10 @@ void cp_settings_parse(cp_settings *s, const char *text)
 size_t cp_settings_format(const cp_settings *s, char *out, size_t n)
 {
     int w = snprintf(out, n,
-                     "theme=%s\nfont=%s\nreveal=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
+                     "theme=%s\nfont=%s\nreveal=%s\nanim=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
                      "weak_bits=%d\nexpiry_days=%d\ndim=%d\nscreen_off=%d\nlayout=%s\nautotype=%s\nlast_db=%s\n",
                      s->light ? "light" : "dark", s->large_font ? "large" : "small", s->reveal_toggle ? "toggle" : "hold",
-                     s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
+                     s->animations ? "on" : "off", s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
                      s->dim_s, s->off_s, s->layout, s->autotype, s->last_db);
     if (w < 0 || (size_t)w >= n) return 0;
     for (int i = 0; i < s->nwifi; i++) {

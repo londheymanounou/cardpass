@@ -138,6 +138,14 @@ typedef struct {
     int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
     bool fido_active;
 
+    /* animations (optional, see app_anim.c) */
+    bool anim_on;
+    int sel_prev;
+    uint32_t sel_ms, scr_ms, anim_frame_ms, toast_ms;
+    int last_scr;
+    const void *last_group, *last_entry;
+    char msg_prev[64];
+
     int power;                 /* 0 normal, 1 dimmed, 2 screen off */
     int bat_low;               /* consecutive low battery readings */
     uint32_t bat_check_ms;

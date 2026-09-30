@@ -260,6 +260,7 @@ int main(int argc, char **argv)
     cp_settings cfg;
     cp_settings_default(&cfg);
     cfg.tz_minutes = 120;
+    cfg.animations = false;             /* all screenshots show the settled state; the animation test enables it */
 
     app_init(&A, &PLAT, &cfg);
     snap("01_picker");
@@ -442,6 +443,110 @@ int main(int argc, char **argv)
         CHECK(r == -1 && pump_n > 50 && A.db, "times out after 30 s: %d after %d passes", r, pump_n);
         key('l' | K_FN);
         CHECK(A.db == NULL || A.scr != SCR_FIDO, "not stuck in the modal");
+    }
+
+    /* animations: cross-fade, slide-in, toast; off switch, key skips, battery/power guards */
+    {
+        open_db("aes_kpxc.kdbx", "test");
+        A.cfg.animations = false;
+        uint32_t t0 = A.now_ms + 1000;
+        app_tick(&A, t0);
+        CHECK(!A.anim_on, "animations off");
+        key(K_DOWN);
+        CHECK(ap_row_weight(&A, A.sel) == 256 && ap_row_weight(&A, A.sel_prev) == 0, "no cross-fade when off");
+
+        A.cfg.animations = true;
+        app_tick(&A, t0 + 100);
+        CHECK(A.anim_on, "animations on");
+        int old = A.sel;
+        key(K_DOWN);
+        CHECK(A.sel_prev == old && ap_row_weight(&A, A.sel) == 0 && ap_row_weight(&A, old) == 256, "cross-fade starts: old row lit, new row not yet");
+        app_tick(&A, A.now_ms + 50);
+        int w = ap_row_weight(&A, A.sel);
+        CHECK(w > 100 && w < 160 && ap_row_weight(&A, old) == 256 - w, "halfway: %d", w);
+        snap("73_crossfade_half");
+        app_tick(&A, A.now_ms + 200);
+        CHECK(ap_row_weight(&A, A.sel) == 256 && ap_row_weight(&A, old) == 0, "cross-fade done");
+
+        /* slide-in: entering an entry starts with rows pushed to the right, ends identical to the static screen */
+        select_title("Gmail");
+        key(K_ENTER);
+        static uint16_t settled[UI_W * UI_H], moving[UI_W * UI_H];
+        int y0, y1;
+        while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);
+        draw_band(moving, 0, UI_H);                    /* time = just entered */
+        CHECK(memcmp(moving, panel, sizeof moving) == 0, "partial redraw equals full redraw mid-slide");
+        snap("74_slide_start");
+        app_tick(&A, A.now_ms + 60);
+        snap("75_slide_mid");
+        app_tick(&A, A.now_ms + 500);
+        while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);
+        draw_band(settled, 0, UI_H);
+        A.cfg.animations = false;
+        app_tick(&A, A.now_ms + 10);
+        draw_band(moving, 0, UI_H);                    /* the same screen with animations off */
+        CHECK(memcmp(moving, settled, sizeof moving) == 0, "slide ends exactly on the static screen");
+        A.cfg.animations = true;
+        app_tick(&A, A.now_ms + 10);
+
+        /* a key press skips a running slide */
+        key('`');
+        CHECK(A.scr == SCR_HOME, "back home");
+        while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);
+        app_tick(&A, A.now_ms + 20);
+        CHECK(A.now_ms - A.scr_ms < 100, "slide is running");
+        key(K_DOWN);
+        CHECK(A.now_ms - A.scr_ms > 1000u, "a key press ends the slide at once");
+
+        /* toast slides up from behind the footer */
+        snprintf(A.msg, sizeof A.msg, "Hello toast");
+        app_tick(&A, A.now_ms + 500);
+        CHECK(ap_toast_offset(&A) == 14, "toast starts below: %d", ap_toast_offset(&A));
+        app_tick(&A, A.now_ms + 200);
+        CHECK(ap_toast_offset(&A) == 0, "toast settled");
+        A.msg[0] = 0;
+
+        /* guards: low battery, dimmed screen, passkey prompt switch animations off */
+        battery_level = 10;
+        app_tick(&A, A.now_ms + 6000);
+        CHECK(!A.anim_on, "off below 15 %% battery");
+        battery_level = 76;
+        app_tick(&A, A.now_ms + 6000);
+        CHECK(A.anim_on, "back on");
+        A.fido_active = true;
+        app_tick(&A, A.now_ms + 10);
+        CHECK(!A.anim_on, "off during a passkey prompt");
+        A.fido_active = false;
+        app_tick(&A, A.now_ms + 10);
+        A.cfg.animations = false;
+        app_lock(&A);
+    }
+
+    /* frames for tools/make_anim_gif.py: what the animations look like, straight from the app's drawing code */
+    {
+        open_db("aes_kpxc.kdbx", "test");
+        A.cfg.animations = true;
+        app_tick(&A, A.now_ms + 500);
+        char name[64];
+        int f = 0;
+        select_title("Gmail");
+        A.cfg.animations = false;
+        app_tick(&A, A.now_ms + 500);
+        A.cfg.animations = true;
+        app_tick(&A, A.now_ms + 500);
+        while (f < 12) { present(NULL); snprintf(name, sizeof name, "anim_00_home_%02d", f++); write_png(name, panel, 3); app_tick(&A, A.now_ms + 33); }
+        key(K_ENTER);                                      /* entering the entry: rows slide in */
+        for (f = 0; f < 14; f++) { present(NULL); snprintf(name, sizeof name, "anim_01_slide_%02d", f); write_png(name, panel, 3); app_tick(&A, A.now_ms + 33); }
+        for (int d = 0; d < 3; d++) {                      /* moving the selection: the highlight fades over */
+            key(K_DOWN);
+            for (f = 0; f < 5; f++) { present(NULL); snprintf(name, sizeof name, "anim_02_fade_%d_%02d", d, f); write_png(name, panel, 3); app_tick(&A, A.now_ms + 33); }
+        }
+        snprintf(A.msg, sizeof A.msg, "Copied to the screen");         /* toast slides up */
+        app_tick(&A, A.now_ms + 33);
+        for (f = 0; f < 8; f++) { present(NULL); snprintf(name, sizeof name, "anim_03_toast_%02d", f); write_png(name, panel, 3); app_tick(&A, A.now_ms + 33); }
+        A.msg[0] = 0;
+        A.cfg.animations = false;
+        app_lock(&A);
     }
 
     /* power: dim, screen off, wake without side effects, no dimming while a browser waits */

@@ -65,6 +65,7 @@ static bool hid_ready(void *ctx) { return hw_usb_ready(); }               /* BLE
 static void stroke(void *ctx, uint8_t key, uint8_t mods) { hw_usb_stroke(key, mods); }
 static void delay_ms(void *ctx, int ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
 
+static bool animations = true;   /* Settings -> Animations: fade the backlight */
 static int brightness = 60;      /* settings value; the backlight state (normal/dim/off) scales it */
 
 static void save_settings(void *ctx, const char *text)
@@ -73,6 +74,7 @@ static void save_settings(void *ctx, const char *text)
     cp_settings s;
     cp_settings_parse(&s, text);
     brightness = s.brightness;
+    animations = s.animations;
     hw_display_brightness(brightness);
 }
 
@@ -127,8 +129,15 @@ static void set_time_fn(void *ctx, int64_t t) { hw_time_set(t); }
 
 static void backlight_fn(void *ctx, int state)
 {
-    hw_display_sleep(state == 2);                                /* off / on */
-    hw_display_brightness(state == 1 ? (brightness < 8 ? brightness : 8) : brightness);
+    int target = state == 1 ? (brightness < 8 ? brightness : 8) : brightness;
+    if (state == 2) {                                            /* fade out, then switch the panel off */
+        if (animations) { hw_display_fade(0, 250); vTaskDelay(pdMS_TO_TICKS(260)); }
+        hw_display_sleep(true);
+    } else {
+        hw_display_sleep(false);                                 /* panel on; backlight ramps from where it was */
+        if (animations) hw_display_fade(target, state == 0 ? 150 : 250);
+        else hw_display_brightness(target);
+    }
     hw_power_boost(state == 0);                                  /* full speed only while the user is active */
 }
 static void shutdown_fn(void *ctx) { hw_display_sleep(true); hw_deep_sleep(); }
@@ -161,6 +170,7 @@ void app_main(void)
     hw_settings_load(text, sizeof text);
     cp_settings_parse(&cfg, text);
     brightness = cfg.brightness;
+    animations = cfg.animations;
     hw_display_brightness(brightness);
     hw_power_init();
 

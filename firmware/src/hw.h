@@ -15,6 +15,7 @@ uint16_t *hw_display_strip(void);                        /* DMA-capable UI_W x S
 void hw_display_push(int y0, int h, uint16_t *px);        /* px is RGB565, byte-swapped in place */
 void hw_display_brightness(int pct);
 void hw_display_sleep(bool on);
+void hw_display_fade(int pct, int ms);                   /* non-blocking backlight ramp */
 
 /* power: CPU 240 MHz while the user is active (boost), 80 MHz when idle; deep sleep for a dead battery */
 void hw_power_init(void);

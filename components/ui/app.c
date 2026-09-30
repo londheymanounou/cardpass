@@ -147,6 +147,7 @@ void ap_move_sel(app *a, int n, int delta)
     if (!n) return;
     int old = a->sel;
     a->sel = (a->sel + delta + n) % n; /* wraps around */
+    if (n > 1) ap_sel_changed(a, old);
     ap_mark_row(a, old);
     ap_mark_row(a, a->sel);
     scroll_to_sel(a);
@@ -477,6 +478,7 @@ void app_key(app *a, uint32_t key, bool down)
     uint32_t k = K_KEY(key);
     bool fn = key & K_FN;
     a->last_input_ms = a->now_ms;
+    ap_anim_key(a);
     if (a->power) {                               /* any key wakes; a key that woke a dark screen does nothing else */
         bool was_off = a->power == 2;
         set_power(a, 0);
@@ -604,6 +606,7 @@ void app_tick(app *a, uint32_t now_ms)
         snprintf(a->msg, sizeof a->msg, "Locked after inactivity");
         return;
     }
+    ap_anim_tick(a, now_ms);
     if (prev / 1000 != now_ms / 1000 && a->power != 2) {     /* nothing to update on a dark screen */
         ap_mark(a, 0, BAR_H); /* clock */
         if (a->scr == SCR_TIME) ap_mark(a, CONTENT_Y, CONTENT_Y + 40);
@@ -618,6 +621,8 @@ void app_init(app *a, const app_platform *p, const cp_settings *cfg)
     memset(a, 0, sizeof *a);
     a->p = p;
     a->cfg = *cfg;
+    a->sel_prev = -1;
+    a->last_scr = -1;
     a->theme = cfg->light ? &ui_light : &ui_dark;
     a->font = cfg->large_font ? &ui_font_large : &ui_font_small;
     app_lock(a);
@@ -626,6 +631,7 @@ void app_init(app *a, const app_platform *p, const cp_settings *cfg)
 
 bool app_dirty(app *a, int *y0, int *y1)
 {
+    ap_anim_nav_check(a);
     if (a->power == 2 || a->dirty_y1 <= a->dirty_y0) return false;   /* dark: keep the range for the wake-up redraw */
     *y0 = a->dirty_y0;
     *y1 = a->dirty_y1;
@@ -670,20 +676,12 @@ void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, 
     int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
     if (y + h <= s->y0 || y >= s->y0 + s->h) return;
     bool sel = i == a->sel;
-    ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-    if (sel) ui_fill(s, 0, y, 2, h, T->accent);
+    ap_row_bg(a, s, y, h, i);
     int ty = y + (h - F->height) / 2, x = PAD + 2;
     if (icon) x += ui_text(s, F, x, ty, icon, icon_c, 16) + 4;
     int rw = right && *right ? ui_text_width(&ui_font_small, right) : 0;
     ui_text(s, F, x, ty, text, sel ? T->sel_fg : T->fg, UI_W - x - PAD - (rw ? rw + 6 : 0));
     if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, y + (h - ui_font_small.height) / 2, right, right_c, rw);
-}
-
-void ap_row_bg(app *a, ui_strip *s, int y, int h, int i)
-{
-    bool sel = i == a->sel;
-    ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-    if (sel) ui_fill(s, 0, y, 2, h, T->accent);
 }
 
 void ap_draw_scrollbar_in(app *a, ui_strip *s, int top, int n)
@@ -728,8 +726,9 @@ void ap_draw_toast(app *a, ui_strip *s)
     if (!a->msg[0]) return;
     int w = ui_text_width(&ui_font_small, a->msg) + 8;
     if (w > UI_W - 2 * PAD) w = UI_W - 2 * PAD;
-    ui_fill(s, UI_W - w - PAD, UI_H - FOOT_H - 14, w, 13, T->bar_bg);
-    ui_text(s, &ui_font_small, UI_W - w - PAD + 4, UI_H - FOOT_H - 14, a->msg, T->warn, w - 8);
+    int y = UI_H - FOOT_H - 14 + ap_toast_offset(a);          /* slides up from behind the footer */
+    ui_fill(s, UI_W - w - PAD, y, w, 13, T->bar_bg);
+    ui_text(s, &ui_font_small, UI_W - w - PAD + 4, y, a->msg, T->warn, w - 8);
 }
 
 /* Text box; cursor = byte offset or -1. Long text scrolls so the cursor stays visible. */
@@ -785,8 +784,7 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
     int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
     if (y + h <= s->y0 || y >= s->y0 + s->h) return;
     bool sel = i == a->sel, reveal = sel && a->revealed;
-    ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
-    if (sel) ui_fill(s, 0, y, 2, h, T->accent);
+    ap_row_bg(a, s, y, h, i);
     int ty = y + (h - F->height) / 2, sy = y + (h - ui_font_small.height) / 2, vx = PAD + LABEL_W, vw = UI_W - vx - PAD;
     const char *label = "", *val = "";
     char right[40] = "";
@@ -989,4 +987,5 @@ void app_draw(app *a, ui_strip *s)
     ap_wipe(buf, REVEAL_MAX);
     free(buf);
     if (s->y0 + s->h > UI_H - FOOT_H) ap_draw_footer(a, s, hint);
+    ap_slide_apply(a, s);
 }

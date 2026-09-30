@@ -72,6 +72,14 @@ enumeration ever breaks after dimming, DFS is the suspect (`hw_power_init` in `h
 the ADC formula is M5Unified's ((mV*2 - 3300) / 850): compare with a multimeter; the critical level
 (3 %) and the deep-sleep wake (keyboard INT, GPIO 11) need one real discharge to confirm.
 
+## 3f. Animations
+
+Settings -> Animations. On: the selection highlight fades between rows, rows slide in when entering
+a list or an entry, toasts slide up, the backlight fades when dimming/waking. Judge smoothness and
+whether the SPI push (about 8 strips of 16 rows per frame) keeps up at 30 fps; if not, lower
+`FRAME_MS` cost by marking fewer rows (`ap_anim_tick` in `components/ui/app_anim.c`). The backlight
+fade needs `ledc_fade_func_install` to work next to the other LEDC use (`hw_display.c`).
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |
