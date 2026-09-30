@@ -55,6 +55,7 @@ typedef struct {
 /* Verify + decrypt f into s. composite != NULL: run the KDF, tk is output;
  * composite == NULL: tk is the cached transformed key (input). */
 kdbx_err kdbx_read_file(FILE *f, const uint8_t *composite, uint8_t tk[32], kdbx_header *h, kdbx_sink *s);
+kdbx_err kdbx_index_payload(const uint8_t *d, size_t n, bool gzip, size_t chunk, kdbx_db **out); /* tests */
 kdbx_err kdbx_open_tk(FILE *f, const uint8_t *composite, const uint8_t tk[32], kdbx_db **out);
 void kdbx_stream_xor(const uint8_t key[32], const uint8_t nonce[12], uint32_t off, const uint8_t *in, uint8_t *out, size_t n);
 

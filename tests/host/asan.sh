@@ -9,7 +9,7 @@ B=build/asan
 mkdir -p $B
 CFLAGS="-std=gnu11 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
   -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_STDIO -I$C/kdbx/include -I$C/kdbx -I$C/kdbx/yxml -I$C/totp/include
-  -I$C/gen/include -I$C/search/include -I$C/typing/include -I$C/strength/include -I$D/miniz-src -I$D/mbedtls-src/include"
+  -I$C/gen/include -I$C/search/include -I$C/typing/include -I$C/strength/include -I$C/fido/include -I$D/miniz-src -I$D/mbedtls-src/include"
 
 # libraries, compiled once
 if [ ! -f $B/libdeps.a ]; then
@@ -27,3 +27,9 @@ ARGS=../../testdata run test_search test_search.c $C/search/search.c $KDBX host_
 ARGS="../../testdata $B/save_work" run test_save test_save.c $KDBX host_random.c
 ARGS= run test_typing test_typing.c $C/typing/layouts.c $C/typing/autotype.c
 ARGS= run test_strength test_strength.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c
+FIDO="$C/fido/cbor.c $C/fido/ctap.c $C/fido/ctaphid.c"
+ARGS="../../testdata $B" run test_fido test_fido.c $KDBX host_random.c $FIDO
+ARGS="../../testdata ${FUZZ_ITERS:-3000}" run fuzz fuzz.c $FIDO $KDBX $C/search/search.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c
+UI="$C/ui/gfx.c $C/ui/app.c $C/ui/font_data.c -I$C/ui/include"
+mkdir -p $B/renders
+ARGS="../../testdata $B/renders" run render render.c $UI $KDBX host_random.c $C/search/search.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c

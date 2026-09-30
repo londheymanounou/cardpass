@@ -74,3 +74,18 @@ add_test(NAME strength COMMAND test_strength)
 # RAM budget report (not a pass/fail test): run build/mem_probe
 add_executable(mem_probe mem_probe.c)
 target_link_libraries(mem_probe kdbx "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free")
+
+add_library(fido STATIC ../../components/fido/cbor.c ../../components/fido/ctap.c ../../components/fido/ctaphid.c)
+target_include_directories(fido PUBLIC ../../components/fido/include)
+target_link_libraries(fido PUBLIC kdbx)
+add_executable(test_fido test_fido.c)
+target_link_libraries(test_fido fido)
+add_test(NAME fido COMMAND test_fido ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata ${CMAKE_CURRENT_BINARY_DIR})
+
+add_library(ui STATIC ../../components/ui/gfx.c ../../components/ui/app.c ../../components/ui/font_data.c)
+target_include_directories(ui PUBLIC ../../components/ui/include)
+target_link_libraries(ui PUBLIC kdbx search strength totp)
+add_executable(render render.c)
+target_link_libraries(render ui)
+add_test(NAME render COMMAND render ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata ${CMAKE_CURRENT_BINARY_DIR}/renders)
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/renders)

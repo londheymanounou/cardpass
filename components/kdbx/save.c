@@ -1191,7 +1191,7 @@ static const kdbx_group *find_group(const kdbx_db *db, const uint8_t uuid[16])
     return NULL;
 }
 
-static const kdbx_group *recycle_bin(const kdbx_db *db)
+const kdbx_group *kdbx_recycle_bin(const kdbx_db *db)
 {
     static const uint8_t zero[16];
     return memcmp(db->recycle_uuid, zero, 16) ? find_group(db, db->recycle_uuid) : NULL;
@@ -1207,7 +1207,7 @@ static bool inside(const kdbx_group *g, const kdbx_group *ancestor)
 /* Recycle bin target (existing, or a new group edit in *out). Returns edits used. */
 static size_t bin_target(const kdbx_db *db, kdbx_edit *out, const uint8_t **bin_uuid)
 {
-    const kdbx_group *bin = recycle_bin(db), *root = kdbx_root_group(db);
+    const kdbx_group *bin = kdbx_recycle_bin(db), *root = kdbx_root_group(db);
     if (bin) {
         *bin_uuid = bin->uuid;
         return 0;
@@ -1226,7 +1226,7 @@ size_t kdbx_delete_entry(const kdbx_db *db, const kdbx_entry *e, kdbx_edit out[2
 {
     const uint8_t *bin;
     memset(out, 0, 2 * sizeof *out);
-    if (!db->recycle_enabled || inside(e->group, recycle_bin(db))) {
+    if (!db->recycle_enabled || inside(e->group, kdbx_recycle_bin(db))) {
         out[0].op = KDBX_EDIT_ENTRY_DELETE;
         memcpy(out[0].uuid, e->uuid, 16);
         return 1;
@@ -1242,7 +1242,7 @@ size_t kdbx_delete_group(const kdbx_db *db, const kdbx_group *g, kdbx_edit out[2
 {
     const uint8_t *bin;
     memset(out, 0, 2 * sizeof *out);
-    if (!db->recycle_enabled || inside(g, recycle_bin(db))) {
+    if (!db->recycle_enabled || inside(g, kdbx_recycle_bin(db))) {
         out[0].op = KDBX_EDIT_GROUP_DELETE;
         memcpy(out[0].uuid, g->uuid, 16);
         return 1;

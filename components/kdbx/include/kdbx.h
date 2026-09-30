@@ -131,6 +131,7 @@ typedef struct {
 
 void kdbx_new_uuid(uint8_t uuid[16]);
 const kdbx_group *kdbx_root_group(const kdbx_db *db);
+const kdbx_group *kdbx_recycle_bin(const kdbx_db *db); /* NULL if none */
 /* KeePass delete semantics: move to the recycle bin (creating it if needed) when
  * enabled and not already there, else delete permanently. Fills out[], returns count (<= 2). */
 size_t kdbx_delete_entry(const kdbx_db *db, const kdbx_entry *e, kdbx_edit out[2]);

@@ -355,6 +355,39 @@ void kdbx_header_hmac(const kdbx_header *h, const uint8_t hmac_base[64], uint8_t
     mbedtls_platform_zeroize(hk, sizeof hk);
 }
 
+static kdbx_err index_xml(void *ctx, const uint8_t *d, size_t n);
+static kdbx_err index_bin(void *ctx, const uint8_t *d, size_t n);
+
+/* Test hook (fuzzing): decrypted payload bytes -> gzip -> inner header -> index,
+ * fed in chunks of `chunk` bytes as the real pipeline would. */
+kdbx_err kdbx_index_payload(const uint8_t *d, size_t n, bool gzip, size_t chunk, kdbx_db **out)
+{
+    pipeline *p = calloc(1, sizeof *p);
+    kdbx_db *db = calloc(1, sizeof *db);
+    xml_index *xi = malloc(sizeof *xi);
+    kdbx_sink s = {index_xml, index_bin, xi, {0}, {0}};
+    kdbx_err err = KDBX_ERR_NOMEM;
+    *out = NULL;
+    if (p && db && xi) {
+        xml_index_init(xi, db);
+        p->sink = &s;
+        p->cipher = CIPHER_CHACHA20; /* no padding stage */
+        p->gzip = gzip;
+        tinfl_init(&p->inf);
+        err = KDBX_OK;
+        for (size_t i = 0; i < n && !err; i += chunk)
+            err = inflate_feed(p, d + i, n - i < chunk ? n - i : chunk);
+        if (!err) err = outer_finish(p);
+        if (!err) err = xml_index_finish(xi);
+        xml_index_wipe(xi);
+    }
+    free(xi);
+    free(p);
+    if (err) kdbx_close(db);
+    else *out = db;
+    return err;
+}
+
 kdbx_err kdbx_read_file(FILE *f, const uint8_t *composite, uint8_t tk[32], kdbx_header *h, kdbx_sink *s)
 {
     pipeline *p = calloc(1, sizeof *p);
