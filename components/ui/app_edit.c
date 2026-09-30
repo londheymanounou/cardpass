@@ -53,7 +53,7 @@ static void type_seq(app *a, const char *seq)
     at_error e;
     const kbd_layout *l = layout(a);
     switch (at_type(seq, l, &ops, a->cfg.typing_delay_ms, &e)) {
-    case AT_OK: snprintf(a->msg, sizeof a->msg, "Typed " "\xE2\x9C\x93"); break;
+    case AT_OK: snprintf(a->msg, sizeof a->msg, "Typed " "\xE2\x9C\x93"); a->bt_ms = a->now_ms; break;
     case AT_UNTYPEABLE: snprintf(a->msg, sizeof a->msg, "%s: not on %s", e.detail, kbd_layout_name(l)); break;
     case AT_UNSUPPORTED: snprintf(a->msg, sizeof a->msg, "Unsupported {%s}", e.detail); break;
     case AT_MISSING_FIELD: snprintf(a->msg, sizeof a->msg, "No field %s", e.detail); break;

@@ -294,6 +294,7 @@ void ap_rescan_files(app *a)
 
 void app_lock(app *a)
 {
+    ap_bt_off(a);                                    /* a locked device must not stay discoverable */
     kdbx_close(a->db);
     a->db = NULL;
     free_lists(a);
@@ -568,6 +569,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_ACCOUNT: ap_account_key(a, k, fn); break;
     case SCR_GROUPS: ap_groups_key(a, k, fn); break;
     case SCR_VIEW: ap_view_key(a, k, fn); break;
+    case SCR_BT: ap_bt_key(a, k, fn); break;
     }
 }
 
@@ -607,6 +609,7 @@ void app_tick(app *a, uint32_t now_ms)
         return;
     }
     ap_anim_tick(a, now_ms);
+    ap_bt_tick(a, now_ms);
     if (prev / 1000 != now_ms / 1000 && a->power != 2) {     /* nothing to update on a dark screen */
         ap_mark(a, 0, BAR_H); /* clock */
         if (a->scr == SCR_TIME) ap_mark(a, CONTENT_Y, CONTENT_Y + 40);
@@ -645,12 +648,13 @@ void ap_draw_bar(app *a, ui_strip *s, const char *title)
 {
     ui_fill(s, 0, 0, UI_W, BAR_H, T->bar_bg);
     char right[48] = "";
+    if (a->bt_on) snprintf(right, sizeof right, "%s ", ICON_BLUETOOTH);
     bool valid;
     int64_t now = a->p->now(a->p->ctx, &valid);
     if (valid) {
         int y, mo, d, h, mi;
         ap_civil(now + a->cfg.tz_minutes * 60, &y, &mo, &d, &h, &mi);
-        snprintf(right, sizeof right, "%02d:%02d ", h, mi);
+        snprintf(right + strlen(right), sizeof right - strlen(right), "%02d:%02d ", h, mi);
     }
     int bat = a->p->battery(a->p->ctx);
     if (bat >= 0) {
@@ -920,6 +924,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_DRIVE: snprintf(title, sizeof title, "%s USB drive", ICON_USB); break;
     case SCR_TIME: snprintf(title, sizeof title, "%s Time", ICON_CLOCK); break;
     case SCR_ACCOUNT: snprintf(title, sizeof title, "Change password"); break;
+    case SCR_BT: snprintf(title, sizeof title, "%s Bluetooth", ICON_BLUETOOTH); break;
     case SCR_GROUPS: snprintf(title, sizeof title, "%s Groups", ICON_FOLDER_OPEN); break;
     case SCR_VIEW: snprintf(title, sizeof title, "%s %.40s", ICON_FILE, ap_view_name(a)); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
@@ -983,6 +988,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_ACCOUNT: ap_account_draw(a, s, &hint); break;
     case SCR_GROUPS: ap_groups_draw(a, s, &hint); break;
     case SCR_VIEW: ap_view_draw(a, s, &hint); break;
+    case SCR_BT: ap_bt_draw(a, s, &hint); break;
     }
     ap_wipe(buf, REVEAL_MAX);
     free(buf);

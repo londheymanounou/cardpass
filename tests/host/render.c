@@ -59,6 +59,13 @@ static char saved_settings[512];
 static void save_settings(void *c, const char *t) { (void)c; snprintf(saved_settings, sizeof saved_settings, "%s", t); }
 static void present(void *c);
 static void pump_fn(void *c);
+static int bt_st, bt_starts, bt_stops, bt_answers, bt_forgets, bt_accept = -1;
+static uint32_t bt_code_v;
+static bool bt_start_fn(void *c) { (void)c; bt_starts++; bt_st = BT_ADVERTISING; return true; }
+static void bt_stop_fn(void *c) { (void)c; bt_stops++; bt_st = BT_OFF; }
+static int bt_state_fn(void *c, uint32_t *code) { (void)c; if (code) *code = bt_code_v; return bt_st; }
+static void bt_answer_fn(void *c, bool ok) { (void)c; bt_answers++; bt_accept = ok; bt_st = ok ? BT_CONNECTED : BT_ADVERTISING; bt_code_v = 0; }
+static void bt_forget_fn(void *c) { (void)c; bt_forgets++; }
 static bool drive_on;
 static bool usb_drive(void *c, bool enter) { (void)c; drive_on = enter; return true; }
 static void set_time_fn(void *c, int64_t t) { (void)c; now_s = t; time_valid = true; }
@@ -88,7 +95,8 @@ static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
     return NTP_OK;
 }
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
-                                  save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn, NULL};
+                                  save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn,
+                                  bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, NULL};
 static int battery_level_now(void) { return battery_level; }
 
 static void draw_band(uint16_t *dst, int y0, int y1)
@@ -547,6 +555,51 @@ int main(int argc, char **argv)
         A.msg[0] = 0;
         A.cfg.animations = false;
         app_lock(&A);
+    }
+
+    /* Bluetooth: on only when switched on, pairing needs the code confirmed, idle/lock switch it off */
+    {
+        open_db("aes_kpxc.kdbx", "test");
+        key(K_TAB);
+        keys(K_DOWN, 10);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_BT && !A.bt_on && bt_starts == 0, "Bluetooth screen, radio off");
+        snap("95_bt_off");
+        key(K_ENTER);
+        CHECK(A.bt_on && bt_starts == 1 && bt_st == BT_ADVERTISING, "switched on");
+        app_tick(&A, A.now_ms + 20);
+        snap("96_bt_advertising");
+        key('`');
+        CHECK(A.scr == SCR_HOME && A.bt_on, "radio stays on after leaving the screen");
+        snap("97_bt_icon_in_bar");
+        bt_st = BT_PAIR_CONFIRM;                     /* a host starts pairing while we are on the home screen */
+        bt_code_v = 123456;
+        app_tick(&A, A.now_ms + 20);
+        CHECK(A.scr == SCR_BT && A.bt_state == BT_PAIR_CONFIRM, "pairing request shows the code");
+        snap("98_bt_pair_confirm");
+        key('`');                                    /* refuse */
+        CHECK(bt_answers == 1 && bt_accept == 0 && A.scr == SCR_HOME, "refused, back where we were");
+        bt_st = BT_PAIR_CONFIRM;
+        bt_code_v = 654321;
+        app_tick(&A, A.now_ms + 20);
+        key(K_ENTER);                                /* accept */
+        CHECK(bt_answers == 2 && bt_accept == 1 && A.scr == SCR_HOME, "accepted");
+        app_tick(&A, A.now_ms + 20);
+        CHECK(A.bt_state == BT_CONNECTED, "connected");
+        app_tick(&A, A.now_ms + 119000);
+        CHECK(A.bt_on, "still on at 119 s");
+        app_tick(&A, A.now_ms + 2000);
+        CHECK(!A.bt_on && bt_stops == 1 && strstr(A.msg, "Bluetooth off"), "off after 2 min idle");
+        key(K_UP);                                   /* the screen went dark meanwhile: this key only wakes it */
+        key(K_TAB);
+        keys(K_DOWN, 10);
+        key(K_ENTER);
+        key('f');
+        CHECK(bt_forgets == 1, "forget pairings");
+        key(K_ENTER);
+        CHECK(A.bt_on, "on again");
+        app_lock(&A);
+        CHECK(!A.bt_on && bt_stops == 2, "locking switches Bluetooth off");
     }
 
     /* power: dim, screen off, wake without side effects, no dimming while a browser waits */

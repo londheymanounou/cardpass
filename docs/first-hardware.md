@@ -80,6 +80,16 @@ whether the SPI push (about 8 strips of 16 rows per frame) keeps up at 30 fps; i
 `FRAME_MS` cost by marking fewer rows (`ap_anim_tick` in `components/ui/app_anim.c`). The backlight
 fade needs `ledc_fade_func_install` to work next to the other LEDC use (`hw_display.c`).
 
+## 3g. Bluetooth typing
+
+Menu -> Bluetooth -> Enter: "CardPass" must appear in the PC/phone's Bluetooth list. Pairing must
+show a 6-digit code on BOTH sides; Enter on the Cardputer confirms. After pairing, typing an entry
+field must go over Bluetooth (unplug USB to be sure). Check: a second pairing attempt while connected
+is refused; a host that only does "Just Works" pairing is dropped; the pairing survives a reboot
+(bond in NVS) and "F" really forgets it; the radio turns off after 2 min idle and on lock. Free heap
+before and after a Bluetooth session must match (clean stack teardown). Known risk: repeated
+NimBLE init/deinit cycles: watch for a slow leak over many sessions.
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |

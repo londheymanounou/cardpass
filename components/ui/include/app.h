@@ -21,6 +21,7 @@ enum {
 #define K_KEY(k) ((k) & 0xFFFFFFu)
 
 typedef struct { char ssid[33]; bool secure; int8_t rssi; } app_ap;
+enum { BT_OFF = 0, BT_ADVERTISING, BT_PAIR_CONFIRM, BT_CONNECTED };
 enum { NTP_OK = 0, NTP_ERR_CONNECT = 1, NTP_ERR_PASSWORD = 2, NTP_ERR_SERVER = 3, NTP_ERR_BAD_TIME = 4 };
 
 typedef struct {
@@ -50,12 +51,19 @@ typedef struct {
     void (*set_time)(void *ctx, int64_t unix_s);
     int (*wifi_scan)(void *ctx, app_ap *out, int max);
     int (*ntp_sync)(void *ctx, const char *ssid, const char *pass, int64_t *unix_s);
+    /* Bluetooth typing: the radio is on only between bt_start and bt_stop. bt_state returns BT_* and,
+     * while a host is pairing, its 6-digit numeric-comparison code. */
+    bool (*bt_start)(void *ctx);
+    void (*bt_stop)(void *ctx);
+    int (*bt_state)(void *ctx, uint32_t *code);
+    void (*bt_answer)(void *ctx, bool accept);
+    void (*bt_forget)(void *ctx);
     void *ctx;
 } app_platform;
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW, SCR_BT,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
@@ -145,6 +153,10 @@ typedef struct {
     int last_scr;
     const void *last_group, *last_entry;
     char msg_prev[64];
+
+    bool bt_on, bt_auto;       /* radio switched on by the user; screen opened by a pairing request */
+    int bt_state, bt_return;
+    uint32_t bt_code, bt_ms;
 
     int power;                 /* 0 normal, 1 dimmed, 2 screen off */
     int bat_low;               /* consecutive low battery readings */

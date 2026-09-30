@@ -47,6 +47,15 @@ void hw_usb_stroke(uint8_t key, uint8_t mods);
 bool hw_usb_fido_recv(uint8_t report[64]);                /* non-blocking */
 void hw_usb_fido_send(const uint8_t report[64]);
 
+/* Bluetooth LE keyboard: radio on only between start and stop; HID reports only over an authenticated link */
+bool hw_ble_start(void);
+void hw_ble_stop(void);
+int hw_ble_state(uint32_t *code);                         /* BT_* from app.h + pairing code */
+void hw_ble_answer(bool accept);                          /* numeric comparison */
+void hw_ble_forget(void);
+bool hw_ble_ready(void);
+void hw_ble_stroke(uint8_t key, uint8_t mods);
+
 /* Wi-Fi: ONLY to set the clock; radio fully off again on return. Never call with a database open. */
 int hw_wifi_scan(app_ap *out, int max);                   /* number of networks */
 int hw_ntp_sync(const char *ssid, const char *pass, int64_t *unix_s);   /* NTP_* code from app.h */

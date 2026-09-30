@@ -205,14 +205,24 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
-- **Size with everything: 926 KB app (23.2%), static RAM 56 KB.**
+- **Bluetooth typing** (plan stage 2): Tab menu -> Bluetooth. The radio is OFF until the user switches it
+  on; it goes off again after 2 min without typing, on lock, and when USB drive mode starts. NimBLE
+  HID-over-GATT keyboard "CardPass", LE Secure Connections with NUMERIC COMPARISON (6-digit code shown
+  on the Cardputer, Enter confirms; a pairing request pops the code up wherever you are), bonding kept
+  in NVS ("F" forgets all pairings). Security rules in `hw_ble.c`: sm_mitm + sc required, any other
+  pairing method is refused, a link that is not encrypted AND authenticated is dropped, and a HID report
+  is never sent unless the link is authenticated. Typing uses Bluetooth when a host is connected, else
+  USB. Host-tested with stubs (80 screens/checks); the radio code is compile-verified only.
+- **Size with everything: 1.10 MB app (27.6%), static RAM 68 KB** (USB + Wi-Fi + Bluetooth stacks; Wi-Fi/BT
+  heap is only used while they are on). Free heap with a big database is THE number to measure first.
+- (earlier) Size with animations: 926 KB app (23.2%), static RAM 56 KB.
 - (earlier) Size with USB + drive mode + Wi-Fi + power: 915 KB app (22.9%), static RAM 56 KB.
 - (earlier) Size with USB + drive mode + Wi-Fi: 902 KB app (22.6% of the 3.9 MB partition), static RAM 55 KB**
   (Wi-Fi/lwIP driver state; freed when Wi-Fi is off). Before Wi-Fi: 538 KB / 33 KB. dist/CardPass.bin
   (launcher) and CardPass-full.bin (M5Burner, merged) come from tools/package.py; header validated.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
-- TODO: Bluetooth typing (BLE HID), light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
+- TODO: light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
 
 ## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its

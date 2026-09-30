@@ -61,8 +61,18 @@ static int64_t now_fn(void *ctx, bool *valid)
 
 static uint32_t millis_fn(void *ctx) { return hw_millis(); }
 static int battery_fn(void *ctx) { return hw_battery_percent(); }
-static bool hid_ready(void *ctx) { return hw_usb_ready(); }               /* BLE HID: later */
-static void stroke(void *ctx, uint8_t key, uint8_t mods) { hw_usb_stroke(key, mods); }
+/* Typing goes over Bluetooth when a host is connected (the user switched it on), else over USB. */
+static bool hid_ready(void *ctx) { return hw_ble_ready() || hw_usb_ready(); }
+static void stroke(void *ctx, uint8_t key, uint8_t mods)
+{
+    if (hw_ble_ready()) hw_ble_stroke(key, mods);
+    else hw_usb_stroke(key, mods);
+}
+static bool bt_start_fn(void *ctx) { return hw_ble_start(); }
+static void bt_stop_fn(void *ctx) { hw_ble_stop(); }
+static int bt_state_fn(void *ctx, uint32_t *code) { return hw_ble_state(code); }
+static void bt_answer_fn(void *ctx, bool ok) { hw_ble_answer(ok); }
+static void bt_forget_fn(void *ctx) { hw_ble_forget(); }
 static void delay_ms(void *ctx, int ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
 
 static bool animations = true;   /* Settings -> Animations: fade the backlight */
@@ -150,7 +160,7 @@ static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t
 
 static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
                                       save_settings, present, pump, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn,
-                                      ntp_sync_fn, NULL};
+                                      ntp_sync_fn, bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, NULL};
 
 void app_main(void)
 {
