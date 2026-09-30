@@ -16,9 +16,15 @@ void hw_display_push(int y0, int h, uint16_t *px);        /* px is RGB565, byte-
 void hw_display_brightness(int pct);
 void hw_display_sleep(bool on);
 
+/* power: CPU 240 MHz while the user is active (boost), 80 MHz when idle; deep sleep for a dead battery */
+void hw_power_init(void);
+void hw_power_boost(bool on);
+void hw_deep_sleep(void);                                 /* does not return; woken by the keyboard */
+
 /* keyboard (TCA8418): delivers app key codes (see app.h) */
 void hw_keys_init(void);
 void hw_keys_poll(void (*on_key)(uint32_t key, bool down), uint32_t now_ms);
+void hw_keys_flush(void);                                 /* drop pending events, release INT (before deep sleep) */
 
 /* SD card */
 bool hw_sd_mount(void);

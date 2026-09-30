@@ -184,12 +184,21 @@ checked by independent readers with `python tools/check_saved.py`.
   while a database is open (in the app AND in main.c), the radio is fully deinitialised after every
   call, and IDF stores no credentials (RAM storage, no NVS wifi data). "Set N min ago" shown.
   Host-tested end to end with stubs (57 screens/checks). The radio/NTP driver is compile-verified only.
-- **Size with USB + drive mode + Wi-Fi: 902 KB app (22.6% of the 3.9 MB partition), static RAM 55 KB**
+- **Power management** (plan section 4, battery): idle stages dim (20 s) -> screen off (45 s) -> auto-lock
+  (5 min), all in settings; a key that wakes a dark screen is swallowed (cannot type anything);
+  never dims while a browser waits for a passkey; a dark screen draws nothing (dirty range is kept
+  for the wake-up redraw) and the keyboard is polled at 20 Hz. Critical battery (<= 3 % in three
+  readings 5 s apart, so load sag cannot trigger it): lock + wipe, message, deep sleep woken only by the
+  keyboard interrupt. CPU: DFS 240/80 MHz with a max-frequency lock held only while the screen is at
+  full brightness; NO light sleep (TinyUSB would not survive it). Host-tested with stubbed backlight /
+  shutdown / battery; the actual current draw is a device measurement.
+- **Size with USB + drive mode + Wi-Fi + power: 915 KB app (22.9%), static RAM 56 KB.**
+- (earlier) Size with USB + drive mode + Wi-Fi: 902 KB app (22.6% of the 3.9 MB partition), static RAM 55 KB**
   (Wi-Fi/lwIP driver state; freed when Wi-Fi is off). Before Wi-Fi: 538 KB / 33 KB. dist/CardPass.bin
   (launcher) and CardPass-full.bin (M5Burner, merged) come from tools/package.py; header validated.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
-- TODO: BLE HID, light sleep, real-device checks (docs/first-hardware.md), optional Grove RTC.
+- TODO: BLE HID, light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
 
 ## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its

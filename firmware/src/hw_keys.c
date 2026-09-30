@@ -114,6 +114,13 @@ static uint32_t translate(int x, int y)
 
 static bool repeats(uint32_t k) { return k == K_UP || k == K_DOWN || k == K_LEFT || k == K_RIGHT || k == K_BACKSPACE; }
 
+void hw_keys_flush(void)
+{
+    while (rd(REG_KEY_EVENT_A)) {}
+    for (int i = 0; i < 3; i++) rd((uint8_t)(REG_GPIO_INT_STAT_1 + i));
+    wr(REG_INT_STAT, 3);
+}
+
 void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
 {
     if (gpio_get_level(PIN_INT)) {

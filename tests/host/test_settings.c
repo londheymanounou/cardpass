@@ -58,6 +58,11 @@ int main(void)
     cp_settings_parse(&t, "wifi=zz:00\nwifi=414:41\nwifi=41\n");
     CHECK(t.nwifi == 0, "bad wifi lines ignored");
 
+    cp_settings_parse(&t, "dim=0\nscreen_off=30\n");
+    CHECK(t.dim_s == 0 && t.off_s == 30, "dim/off parsed");
+    cp_settings_parse(&t, "dim=-5\nscreen_off=abc\n");
+    CHECK(t.dim_s == 20 && t.off_s == 45, "bad dim/off ignored");
+
     /* time math against independently computed values (python calendar.timegm) */
     CHECK(cp_unix_from_civil(1970, 1, 1, 0, 0, 0) == 0, "epoch");
     CHECK(cp_unix_from_civil(2026, 9, 30, 12, 0, 0) == 1790769600LL, "2026-09-30 12:00 = %lld", (long long)cp_unix_from_civil(2026, 9, 30, 12, 0, 0));

@@ -49,7 +49,8 @@ static int64_t now_s = 1790000000;
 static int64_t now_fn(void *c, bool *valid) { (void)c; *valid = time_valid; return now_s; }
 static uint32_t ms;
 static uint32_t millis_fn(void *c) { (void)c; return ms += 40; }
-static int battery(void *c) { (void)c; return 76; }
+static int battery_level_now(void);
+static int battery(void *c) { (void)c; return battery_level_now(); }
 static bool hid_ready(void *c) { (void)c; return true; }
 static char typed[4096];
 static void stroke(void *c, uint8_t k, uint8_t m) { (void)c; size_t l = strlen(typed); if (l < sizeof typed - 8) sprintf(typed + l, "%02x%s ", k, m ? "*" : ""); }
@@ -61,6 +62,9 @@ static void pump_fn(void *c);
 static bool drive_on;
 static bool usb_drive(void *c, bool enter) { (void)c; drive_on = enter; return true; }
 static void set_time_fn(void *c, int64_t t) { (void)c; now_s = t; time_valid = true; }
+static int backlight_state, backlight_calls, shutdowns, battery_level = 76;
+static void backlight_fn(void *c, int s) { (void)c; backlight_state = s; backlight_calls++; }
+static void shutdown_fn(void *c) { (void)c; shutdowns++; }
 static int scans, ntp_calls;
 static char ntp_ssid[40], ntp_pass[64];
 static int64_t ntp_time;
@@ -84,7 +88,8 @@ static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
     return NTP_OK;
 }
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
-                                  save_settings, present, pump_fn, usb_drive, set_time_fn, wifi_scan_fn, ntp_sync_fn, NULL};
+                                  save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn, NULL};
+static int battery_level_now(void) { return battery_level; }
 
 static void draw_band(uint16_t *dst, int y0, int y1)
 {
@@ -348,7 +353,7 @@ int main(int argc, char **argv)
     key(K_ENTER);
     snap("23_settings");
     key(K_RIGHT); /* light */
-    keys(K_DOWN, 4);
+    keys(K_DOWN, 6);
     key(K_RIGHT); /* layout -> UK */
     snap("24_settings_light");
     key('`');
@@ -405,6 +410,57 @@ int main(int argc, char **argv)
         CHECK(r == -1 && pump_n > 50 && A.db, "times out after 30 s: %d after %d passes", r, pump_n);
         key('l' | K_FN);
         CHECK(A.db == NULL || A.scr != SCR_FIDO, "not stuck in the modal");
+    }
+
+    /* power: dim, screen off, wake without side effects, no dimming while a browser waits */
+    {
+        open_db("aes_kpxc.kdbx", "test");
+        select_title("Gmail");
+        key(K_ENTER);
+        uint32_t t0 = A.now_ms;
+        app_tick(&A, t0 + 19000);
+        CHECK(A.power == 0 && backlight_state == 0, "still bright at 19 s");
+        app_tick(&A, t0 + 21000);
+        CHECK(A.power == 1 && backlight_state == 1, "dimmed after 20 s");
+        snap("70_dimmed");
+        app_tick(&A, t0 + 46000);
+        CHECK(A.power == 2 && backlight_state == 2, "screen off after 45 s");
+        int y0, y1;
+        CHECK(!app_dirty(&A, &y0, &y1), "nothing is drawn while dark");
+        int scr = A.scr, sel = A.sel;
+        key(K_DOWN);            /* wakes the screen, does nothing else */
+        CHECK(A.power == 0 && backlight_state == 0 && A.scr == scr && A.sel == sel, "wake key is swallowed");
+        snap("71_woken");
+        key(K_DOWN);
+        CHECK(A.sel != sel, "next key works");
+        uint32_t t1 = A.now_ms;
+        app_tick(&A, t1 + 21000);           /* dim again, but a passkey request keeps the screen on */
+        CHECK(A.power == 1, "dimmed again");
+        A.fido_active = true;
+        app_tick(&A, t1 + 22000);
+        CHECK(A.power == 0, "bright while a browser waits");
+        A.fido_active = false;
+        key(K_DOWN);
+        app_tick(&A, A.now_ms + 1000);
+        CHECK(A.power == 0, "any key restores brightness");
+
+        /* critical battery: three low readings in a row lock, wipe and shut down */
+        battery_level = 2;
+        uint32_t tb = A.now_ms + 6000;
+        app_tick(&A, tb);
+        app_tick(&A, tb + 5000);
+        CHECK(A.db && shutdowns == 0, "two low readings are not enough");
+        battery_level = 50;
+        app_tick(&A, tb + 10000);           /* sag recovered: counter resets */
+        battery_level = 2;
+        app_tick(&A, tb + 15000);
+        app_tick(&A, tb + 20000);
+        CHECK(A.db && shutdowns == 0, "counter was reset");
+        app_tick(&A, tb + 25000);
+        CHECK(!A.db && shutdowns == 1 && A.scr == SCR_PICKER, "locked and shut down");
+        snap("72_battery_empty");
+        battery_level = 76;
+        app_lock(&A);
     }
 
     /* setting the time (cfg.tz_minutes = 120): by hand, then over Wi-Fi */
@@ -576,7 +632,9 @@ int main(int argc, char **argv)
     select_row_kind(3);
     snap("38_large_entry_no_time");
     time_valid = true;
-    app_tick(&A, 21000 + 6 * 60 * 1000);
+    app_tick(&A, 21000 + 6 * 60 * 1000);       /* long idle: the screen went dark and the app locked */
+    CHECK(A.power == 2 && !A.db, "dark and locked");
+    key(K_UP);                                  /* wakes the screen; nothing sensitive is left to show */
     snap("39_autolocked");
     CHECK(!A.db, "auto-lock");
     app_lock(&A);

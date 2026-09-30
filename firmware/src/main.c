@@ -65,12 +65,15 @@ static bool hid_ready(void *ctx) { return hw_usb_ready(); }               /* BLE
 static void stroke(void *ctx, uint8_t key, uint8_t mods) { hw_usb_stroke(key, mods); }
 static void delay_ms(void *ctx, int ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
 
+static int brightness = 60;      /* settings value; the backlight state (normal/dim/off) scales it */
+
 static void save_settings(void *ctx, const char *text)
 {
     hw_settings_save(text);
     cp_settings s;
     cp_settings_parse(&s, text);
-    hw_display_brightness(s.brightness);
+    brightness = s.brightness;
+    hw_display_brightness(brightness);
 }
 
 /* Draw and push whatever changed, band by band (no full framebuffer exists). */
@@ -116,11 +119,19 @@ static void pump(void *ctx)
         ctaphid_keepalive(&HID, usb_send, NULL);
         keepalive_at = now + 100;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(A.power == 2 ? 50 : 10));           /* dark and idle: poll the keyboard at 20 Hz */
 }
 
 static bool usb_drive(void *ctx, bool enter) { return hw_usb_drive(enter); }
 static void set_time_fn(void *ctx, int64_t t) { hw_time_set(t); }
+
+static void backlight_fn(void *ctx, int state)
+{
+    hw_display_sleep(state == 2);                                /* off / on */
+    hw_display_brightness(state == 1 ? (brightness < 8 ? brightness : 8) : brightness);
+    hw_power_boost(state == 0);                                  /* full speed only while the user is active */
+}
+static void shutdown_fn(void *ctx) { hw_display_sleep(true); hw_deep_sleep(); }
 /* Wi-Fi only while locked: enforced here as well as in the app (PLAN.md section 2). */
 static int wifi_scan_fn(void *ctx, app_ap *out, int max) { return A.db ? 0 : hw_wifi_scan(out, max); }
 static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t)
@@ -129,7 +140,8 @@ static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t
 }
 
 static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
-                                      save_settings, present, pump, usb_drive, set_time_fn, wifi_scan_fn, ntp_sync_fn, NULL};
+                                      save_settings, present, pump, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn,
+                                      ntp_sync_fn, NULL};
 
 void app_main(void)
 {
@@ -148,7 +160,9 @@ void app_main(void)
     cp_settings cfg;
     hw_settings_load(text, sizeof text);
     cp_settings_parse(&cfg, text);
-    hw_display_brightness(cfg.brightness);
+    brightness = cfg.brightness;
+    hw_display_brightness(brightness);
+    hw_power_init();
 
     app_init(&A, &PLATFORM, &cfg);
     present(NULL);

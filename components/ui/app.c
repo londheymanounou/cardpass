@@ -453,11 +453,27 @@ static void go_back(app *a)
     ap_mark_all(a);
 }
 
+#define BAT_CRITICAL 3          /* percent: lock, wipe and shut down (3 readings in a row) */
+#define BAT_POLL_MS 5000
+
+static void set_power(app *a, int state)
+{
+    if (state == a->power) return;
+    a->power = state;
+    a->p->backlight(a->p->ctx, state);
+    if (state == 0) ap_mark_all(a);               /* the panel kept nothing worth trusting: redraw */
+}
+
 void app_key(app *a, uint32_t key, bool down)
 {
     uint32_t k = K_KEY(key);
     bool fn = key & K_FN;
     a->last_input_ms = a->now_ms;
+    if (a->power) {                               /* any key wakes; a key that woke a dark screen does nothing else */
+        bool was_off = a->power == 2;
+        set_power(a, 0);
+        if (was_off) return;
+    }
 
     if (a->scr == SCR_ENTRY && (k == 'r' || k == 'R') && !fn) {
         bool r = !a->cfg.reveal_toggle ? down : (down ? !a->revealed : a->revealed);
@@ -547,13 +563,37 @@ void app_tick(app *a, uint32_t now_ms)
     uint32_t prev = a->now_ms;
     a->now_ms = now_ms;
     if (a->scr == SCR_QR && (int32_t)(now_ms - a->qr_until) >= 0) close_qr(a);
+    /* idle: dim, then screen off (never while a browser is waiting for the user) */
+    uint32_t idle = now_ms - a->last_input_ms;
+    int want = 0;
+    if (!a->fido_active) {
+        if (a->cfg.off_s && idle >= (uint32_t)a->cfg.off_s * 1000u) want = 2;
+        else if (a->cfg.dim_s && idle >= (uint32_t)a->cfg.dim_s * 1000u) want = 1;
+    }
+    set_power(a, want);
+
+    /* critical battery: lock, wipe, deep sleep (readings sag under load: 3 in a row) */
+    if (now_ms - a->bat_check_ms >= BAT_POLL_MS && !a->fido_active) {
+        a->bat_check_ms = now_ms;
+        int bat = a->p->battery(a->p->ctx);
+        a->bat_low = bat >= 0 && bat <= BAT_CRITICAL ? a->bat_low + 1 : 0;
+        if (a->bat_low >= 3) {
+            app_lock(a);
+            set_power(a, 0);
+            snprintf(a->msg, sizeof a->msg, "Battery empty: locked");
+            ap_mark_all(a);
+            a->p->present(a->p->ctx);
+            a->p->shutdown(a->p->ctx);
+            return;
+        }
+    }
     uint32_t lock_ms = (uint32_t)a->cfg.autolock_s * 1000u;
     if (a->db && lock_ms && !a->fido_active && now_ms - a->last_input_ms > lock_ms) {
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, "Locked after inactivity");
         return;
     }
-    if (prev / 1000 != now_ms / 1000) {
+    if (prev / 1000 != now_ms / 1000 && a->power != 2) {     /* nothing to update on a dark screen */
         ap_mark(a, 0, BAR_H); /* clock */
         if (a->scr == SCR_TIME) ap_mark(a, CONTENT_Y, CONTENT_Y + 40);
         if (a->scr == SCR_ENTRY)
@@ -575,7 +615,7 @@ void app_init(app *a, const app_platform *p, const cp_settings *cfg)
 
 bool app_dirty(app *a, int *y0, int *y1)
 {
-    if (a->dirty_y1 <= a->dirty_y0) return false;
+    if (a->power == 2 || a->dirty_y1 <= a->dirty_y0) return false;   /* dark: keep the range for the wake-up redraw */
     *y0 = a->dirty_y0;
     *y1 = a->dirty_y1;
     a->dirty_y0 = a->dirty_y1 = 0;

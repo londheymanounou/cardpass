@@ -77,6 +77,8 @@ void cp_settings_default(cp_settings *s)
 {
     memset(s, 0, sizeof *s);
     s->autolock_s = 300;
+    s->dim_s = 20;
+    s->off_s = 45;
     s->brightness = 60;
     s->typing_delay_ms = 8;
     snprintf(s->layout, sizeof s->layout, "US QWERTY");
@@ -113,6 +115,8 @@ void cp_settings_parse(cp_settings *s, const char *text)
                 else if (!strcmp(k, "reveal")) s->reveal_toggle = !strcmp(v, "toggle");
                 else if (!strcmp(k, "autolock")) num(v, 0, 86400, &s->autolock_s);
                 else if (!strcmp(k, "brightness")) num(v, 5, 100, &s->brightness);
+                else if (!strcmp(k, "dim")) num(v, 0, 3600, &s->dim_s);
+                else if (!strcmp(k, "screen_off")) num(v, 0, 3600, &s->off_s);
                 else if (!strcmp(k, "typing_delay")) num(v, 0, 500, &s->typing_delay_ms);
                 else if (!strcmp(k, "tz")) num(v, -14 * 60, 14 * 60, &s->tz_minutes);
                 else if (!strcmp(k, "weak_bits")) num(v, 1, 256, &s->weak_bits);
@@ -141,10 +145,10 @@ size_t cp_settings_format(const cp_settings *s, char *out, size_t n)
 {
     int w = snprintf(out, n,
                      "theme=%s\nfont=%s\nreveal=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
-                     "weak_bits=%d\nexpiry_days=%d\nlayout=%s\nautotype=%s\nlast_db=%s\n",
+                     "weak_bits=%d\nexpiry_days=%d\ndim=%d\nscreen_off=%d\nlayout=%s\nautotype=%s\nlast_db=%s\n",
                      s->light ? "light" : "dark", s->large_font ? "large" : "small", s->reveal_toggle ? "toggle" : "hold",
                      s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
-                     s->layout, s->autotype, s->last_db);
+                     s->dim_s, s->off_s, s->layout, s->autotype, s->last_db);
     if (w < 0 || (size_t)w >= n) return 0;
     for (int i = 0; i < s->nwifi; i++) {
         char hs[2 * 33 + 1], hp[2 * 64 + 1];

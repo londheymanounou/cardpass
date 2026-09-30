@@ -99,9 +99,11 @@ void ap_menu_draw(app *a, ui_strip *s, const char **hint)
 
 /* ======================= settings ======================= */
 
-enum { S_THEME, S_FONT, S_REVEAL, S_AUTOLOCK, S_LAYOUT, S_DELAY, S_TZ, S_WEAK, S_EXPIRY, S_AUTOTYPE, S_COUNT };
+enum { S_THEME, S_FONT, S_REVEAL, S_AUTOLOCK, S_DIM, S_OFF, S_LAYOUT, S_DELAY, S_TZ, S_WEAK, S_EXPIRY, S_AUTOTYPE, S_COUNT };
 static const int AUTOLOCK[] = {60, 120, 300, 600, 1800, 0};
 static const int DELAYS[] = {0, 4, 8, 15, 30, 60};
+static const int DIM_S[] = {0, 10, 20, 30, 60, 120};
+static const int OFF_S[] = {0, 20, 45, 60, 120, 300};
 static const int EXPIRY_DAYS[] = {0, 7, 14, 30, 60};
 
 static int step_in(const int *v, int n, int cur, int d)
@@ -129,6 +131,8 @@ static void settings_change(app *a, int d)
     case S_FONT: c->large_font = !c->large_font; break;
     case S_REVEAL: c->reveal_toggle = !c->reveal_toggle; break;
     case S_AUTOLOCK: c->autolock_s = step_in(AUTOLOCK, 6, c->autolock_s, d); break;
+    case S_DIM: c->dim_s = step_in(DIM_S, 6, c->dim_s, d); break;
+    case S_OFF: c->off_s = step_in(OFF_S, 6, c->off_s, d); break;
     case S_LAYOUT: {
         int n = kbd_layout_count(), i = 0;
         while (i < n && strcmp(kbd_layout_name(kbd_layout_get(i)), c->layout)) i++;
@@ -171,7 +175,7 @@ void ap_settings_key(app *a, uint32_t k, bool fn)
 
 void ap_settings_draw(app *a, ui_strip *s, const char **hint)
 {
-    static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Keyboard", "Key delay",
+    static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Dim after", "Screen off", "Keyboard", "Key delay",
                                         "Time zone", "Weak below", "Expiry warn", "Auto-type"};
     const cp_settings *c = &a->cfg;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
@@ -182,6 +186,8 @@ void ap_settings_draw(app *a, ui_strip *s, const char **hint)
         case S_FONT: snprintf(v, sizeof v, "%s", c->large_font ? "Large" : "Small"); break;
         case S_REVEAL: snprintf(v, sizeof v, "%s", c->reveal_toggle ? "Press R" : "Hold R"); break;
         case S_AUTOLOCK: if (c->autolock_s) snprintf(v, sizeof v, "%d min", c->autolock_s / 60); else snprintf(v, sizeof v, "Never"); break;
+        case S_DIM: if (c->dim_s) snprintf(v, sizeof v, "%d s", c->dim_s); else snprintf(v, sizeof v, "Never"); break;
+        case S_OFF: if (c->off_s) snprintf(v, sizeof v, "%d s", c->off_s); else snprintf(v, sizeof v, "Never"); break;
         case S_LAYOUT: snprintf(v, sizeof v, "%s", c->layout); break;
         case S_DELAY: snprintf(v, sizeof v, "%d ms", c->typing_delay_ms); break;
         case S_TZ: snprintf(v, sizeof v, "UTC%c%d:%02d", c->tz_minutes < 0 ? '-' : '+', abs(c->tz_minutes) / 60, abs(c->tz_minutes) % 60); break;

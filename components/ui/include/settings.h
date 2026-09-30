@@ -8,6 +8,7 @@
 typedef struct {
     bool light, large_font, reveal_toggle;
     int autolock_s, brightness, typing_delay_ms, tz_minutes, weak_bits, expiry_days;
+    int dim_s, off_s;      /* idle seconds until the backlight dims / the screen turns off (0 = never) */
     char layout[24];
     char autotype[96];     /* default auto-type sequence */
     char last_db[64];      /* file name only, to preselect in the picker */

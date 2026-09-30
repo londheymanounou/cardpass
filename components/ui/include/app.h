@@ -43,6 +43,10 @@ typedef struct {
     bool (*usb_drive)(void *ctx, bool enter);
     /* Clock. set_time: system clock (UTC). Wi-Fi is on ONLY inside wifi_scan / ntp_sync and the
      * app never calls them while a database is open. ntp_sync: connect, query, switch Wi-Fi off. */
+    /* Power. backlight: 0 = normal (settings brightness), 1 = dim, 2 = screen off. shutdown: deep sleep,
+     * woken by the keyboard only (used when the battery is critical, after the app locked and wiped). */
+    void (*backlight)(void *ctx, int state);
+    void (*shutdown)(void *ctx);
     void (*set_time)(void *ctx, int64_t unix_s);
     int (*wifi_scan)(void *ctx, app_ap *out, int max);
     int (*ntp_sync)(void *ctx, const char *ssid, const char *pass, int64_t *unix_s);
@@ -131,6 +135,9 @@ typedef struct {
     int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
     bool fido_active;
 
+    int power;                 /* 0 normal, 1 dimmed, 2 screen off */
+    int bat_low;               /* consecutive low battery readings */
+    uint32_t bat_check_ms;
     int time_src;              /* 0 unknown, 1 by hand, 2 over Wi-Fi */
     uint32_t time_set_ms;      /* app clock when it was set: "set 4 min ago" */
     struct app_time *tm;
@@ -143,7 +150,7 @@ typedef struct {
 
 void app_init(app *a, const app_platform *p, const cp_settings *cfg);
 void app_key(app *a, uint32_t key, bool down);
-void app_tick(app *a, uint32_t now_ms);      /* auto-lock, TOTP countdown, QR timeout */
+void app_tick(app *a, uint32_t now_ms);      /* idle dim / screen off, auto-lock, battery, TOTP countdown, QR timeout */
 void app_lock(app *a);                        /* wipe everything, back to the picker */
 bool app_dirty(app *a, int *y0, int *y1);     /* dirty band, then cleared */
 void app_draw(app *a, ui_strip *s);           /* draws the whole screen clipped to s */

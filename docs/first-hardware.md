@@ -63,6 +63,15 @@ time within a second or two of a phone. Check that Wi-Fi is really off afterward
 and that a wrong password is reported as such (the reason codes differ between routers). Free heap
 (`esp_get_free_heap_size`) before and after a sync must be the same: the radio must be fully released.
 
+## 3e. Power
+
+The screen must dim after 20 s idle and turn off after 45 s; any key wakes it and that key must do
+nothing else. Measure current on a USB meter: bright / dimmed / dark (target: dark and idle well under
+the bright figure; the 80 MHz + backlight-off state is where the savings come from). If USB
+enumeration ever breaks after dimming, DFS is the suspect (`hw_power_init` in `hw_misc.c`). Battery:
+the ADC formula is M5Unified's ((mV*2 - 3300) / 850): compare with a multimeter; the critical level
+(3 %) and the deep-sleep wake (keyboard INT, GPIO 11) need one real discharge to confirm.
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |

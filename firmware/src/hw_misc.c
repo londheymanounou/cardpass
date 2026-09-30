@@ -4,7 +4,10 @@
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
+#include "driver/gpio.h"
+#include "esp_pm.h"
 #include "esp_random.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "hw.h"
 #include "mbedtls/platform_util.h"
@@ -102,4 +105,34 @@ void hw_settings_save(const char *text)
     nvs_set_str(h, "cfg", text);
     nvs_commit(h);
     nvs_close(h);
+}
+
+/* ---- power ----
+ * DFS only, no light sleep: the USB device (TinyUSB) does not survive it. Without a lock the CPU
+ * would drop to 80 MHz even while busy, so the max-frequency lock is held while the user is active
+ * (screen at full brightness) and released when dimmed or dark. */
+static esp_pm_lock_handle_t boost_lock;
+static bool boosted;
+
+void hw_power_init(void)
+{
+    esp_pm_config_t pm = {.max_freq_mhz = 240, .min_freq_mhz = 80, .light_sleep_enable = false};
+    esp_pm_configure(&pm);
+    esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "ui", &boost_lock);
+    hw_power_boost(true);
+}
+
+void hw_power_boost(bool on)
+{
+    if (!boost_lock || on == boosted) return;
+    if (on) esp_pm_lock_acquire(boost_lock);
+    else esp_pm_lock_release(boost_lock);
+    boosted = on;
+}
+
+void hw_deep_sleep(void)
+{
+    hw_keys_flush();
+    esp_sleep_enable_ext1_wakeup(1ULL << 11, ESP_EXT1_WAKEUP_ANY_LOW);   /* TCA8418 INT: any key */
+    esp_deep_sleep_start();
 }
