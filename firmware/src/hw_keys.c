@@ -1,3 +1,4 @@
+#ifndef CARDPASS_QEMU   /* replaced by hw_qemu.c in the qemu env */
 /* Cardputer ADV keyboard: TCA8418 matrix controller on the internal I2C bus (SDA 8, SCL 9,
  * address 0x34, INT on GPIO 11). Event byte: bit7 = pressed, (byte & 0x7F) - 1 = row * 10 + col,
  * remapped to the 4 x 14 key layout of the Cardputer.
@@ -167,3 +168,4 @@ void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
         rep_next = now_ms + 70;
     }
 }
+#endif

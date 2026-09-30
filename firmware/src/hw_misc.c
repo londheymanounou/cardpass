@@ -1,9 +1,11 @@
 #include <string.h>
 #include <sys/time.h>
 #include "bootloader_random.h"
+#ifndef CARDPASS_QEMU
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
+#endif
 #include "driver/gpio.h"
 #include "esp_pm.h"
 #include "esp_random.h"
@@ -54,6 +56,9 @@ void hw_time_set(int64_t unix_s)
 }
 
 /* ---- battery: ADC divider on GPIO10; percent from (mV*2 - 3300) / (4150 - 3300) like M5Unified ---- */
+#ifdef CARDPASS_QEMU
+int hw_battery_percent(void) { return 80; }     /* QEMU has no ADC model: its self-calibration never finishes */
+#else
 int hw_battery_percent(void)
 {
     static adc_oneshot_unit_handle_t adc;
@@ -86,6 +91,7 @@ int hw_battery_percent(void)
     last = now;
     return cached;
 }
+#endif
 
 /* ---- settings in NVS (a text blob; never anything from the database) ---- */
 void hw_settings_load(char *buf, size_t n)

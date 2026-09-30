@@ -162,17 +162,32 @@ static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, ba
                                       save_settings, present, pump, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn,
                                       ntp_sync_fn, bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, NULL};
 
+#ifdef CARDPASS_QEMU          /* QEMU debug build only (docs/qemu.md): progress + heap, no secrets */
+#include "esp_rom_sys.h"
+#include "esp_heap_caps.h"
+const char *qemu_state(int *scr, int *open) { *scr = A.scr; *open = A.db != NULL; return A.msg; }
+#define MARK(n) esp_rom_printf("QEMU %s heap=%u min=%u\n", n, (unsigned)esp_get_free_heap_size(), (unsigned)esp_get_minimum_free_heap_size())
+#else
+#define MARK(n) ((void)0)
+#endif
+
 void app_main(void)
 {
+    MARK("start");
     esp_err_t e = nvs_flash_init();
     if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) { /* launchers may wipe or share NVS */
         nvs_flash_erase();
         nvs_flash_init();
     }
+    MARK("nvs");
     hw_display_init();
+    MARK("display");
     hw_keys_init();
+    MARK("keys");
     hw_sd_mount();
+    MARK("sd");
     hw_usb_init();
+    MARK("usb");
     ctaphid_init(&HID);
 
     char text[2048];
@@ -183,9 +198,12 @@ void app_main(void)
     animations = cfg.animations;
     hw_display_brightness(brightness);
     hw_power_init();
+    MARK("power");
 
     app_init(&A, &PLATFORM, &cfg);
+    MARK("app_init");
     present(NULL);
+    MARK("present");
     for (;;) {
         pump(NULL);
         uint8_t report[64];

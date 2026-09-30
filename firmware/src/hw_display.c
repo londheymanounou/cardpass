@@ -1,3 +1,4 @@
+#ifndef CARDPASS_QEMU   /* replaced by hw_qemu.c in the qemu env */
 #include <string.h>
 #include "driver/ledc.h"
 #include "driver/spi_master.h"
@@ -107,3 +108,4 @@ void hw_display_push(int y0, int h, uint16_t *px)
     esp_lcd_panel_io_tx_color(io, 0x2C, px, (size_t)UI_W * h * 2);
     xSemaphoreTake(done, portMAX_DELAY);
 }
+#endif

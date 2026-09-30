@@ -1,3 +1,4 @@
+#ifndef CARDPASS_QEMU   /* replaced by hw_qemu.c in the qemu env */
 /* USB device: composite HID keyboard (typing) + FIDO HID (passkeys) through esp_tinyusb.
  * The FIDO reports arrive in the TinyUSB task and are queued; the main task processes them
  * (user-presence UI must run there). Mass storage (SD as a drive) is a later step: entering it
@@ -120,3 +121,4 @@ void hw_usb_fido_send(const uint8_t report[64])
 {
     if (wait_ready(ITF_FIDO)) tud_hid_n_report(ITF_FIDO, 0, report, 64);
 }
+#endif

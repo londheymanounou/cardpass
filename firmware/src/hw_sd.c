@@ -1,3 +1,4 @@
+#ifndef CARDPASS_QEMU   /* replaced by hw_qemu.c in the qemu env */
 #include <stdlib.h>
 #include <sys/stat.h>
 #include "driver/sdspi_host.h"
@@ -77,3 +78,4 @@ void hw_sd_raw_close(void)
     free(raw_card);
     raw_card = NULL;
 }
+#endif
