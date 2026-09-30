@@ -1,3 +1,7 @@
 tests/host/build/
 *.tmp
 __pycache__/
+firmware/.pio/
+firmware/sdkconfig.*
+firmware/.vscode/
+dist/

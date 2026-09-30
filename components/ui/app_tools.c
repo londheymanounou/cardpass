@@ -436,7 +436,7 @@ static void do_create(app *a)
     FILE *kf = NULL;
     if (c->keyfile) {
         a->p->path(a->p->ctx, kfile, kpath, sizeof kpath);
-        if ((kf = fopen(kpath, "rb"))) { fclose(kf); snprintf(a->msg, sizeof a->msg, "%s exists", kfile); return; }
+        if ((kf = fopen(kpath, "rb"))) { fclose(kf); snprintf(a->msg, sizeof a->msg, "Key file already exists"); return; }
         kf = fopen(kpath, "wb");
         if (!kf || kdbx_keyfile_create(kf)) { if (kf) fclose(kf); snprintf(a->msg, sizeof a->msg, "Can't write the key file"); return; }
         fclose(kf);
@@ -468,7 +468,7 @@ static void do_create(app *a)
     snprintf(a->cfg.last_db, sizeof a->cfg.last_db, "%s", file);
     ap_apply_settings(a);
     ap_go_home(a);
-    snprintf(a->msg, sizeof a->msg, "Created %s", file);
+    snprintf(a->msg, sizeof a->msg, "Created %.40s", file);
 }
 
 void ap_create_key(app *a, uint32_t k, bool fn)

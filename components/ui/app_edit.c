@@ -324,6 +324,7 @@ void ap_edit_open(app *a, const kdbx_entry *e, const kdbx_group *parent)
 
 static char *row_buf(struct app_edit *ed, int row, int *cap)
 {
+    *cap = 0;
     int fi = ed->rowmap[row];
     if (fi == -1) { *cap = (int)sizeof ed->tags; return ed->tags; }
     if (fi < 0) return NULL;
@@ -394,6 +395,7 @@ static void text_key(app *a, uint32_t k, bool fn)
     struct app_edit *ed = a->ed;
     int cap;
     char *b = row_buf(ed, ed->editing, &cap);
+    if (!b) { ed->editing = -1; return; }
     int len = (int)strlen(b);
     bool notes = !ed->editing_key && ed->rowmap[ed->editing] >= 0 && !strcmp(ed->key[ed->rowmap[ed->editing]], "Notes");
     if (k == K_ENTER && fn && notes) insert(b, cap, &ed->cursor, '\n');

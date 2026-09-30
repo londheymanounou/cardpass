@@ -11,11 +11,7 @@
 #include "mbedtls/platform_util.h"
 #include "mbedtls/sha256.h"
 #include "mbedtls/sha512.h"
-#ifdef ESP_PLATFORM
-#include "rom/miniz.h"
-#else
-#include "miniz.h"
-#endif
+#include "miniz.h" /* host: miniz; device: ESP-IDF ROM (esp_rom/include/miniz.h) */
 #include "kdbx_priv.h"
 
 #define CHUNK 4096
