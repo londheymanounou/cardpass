@@ -491,6 +491,7 @@ void app_key(app *a, uint32_t key, bool down)
         if (r != a->revealed) a->revealed = r, ap_mark_row(a, a->sel);
         return;
     }
+    if (a->scr == SCR_SPLASH) { if (down) ap_splash_leave(a); return; }   /* any key skips the splash */
     if (!down) return;
     if (fn && (k == 'l' || k == 'L') && a->db && !a->fido_active) { app_lock(a); return; } /* fn+L: lock now */
     if (a->scr == SCR_DRIVE) { ap_drive_key(a, k, fn); return; }   /* nothing else is reachable in drive mode */
@@ -577,6 +578,7 @@ void app_tick(app *a, uint32_t now_ms)
 {
     uint32_t prev = a->now_ms;
     a->now_ms = now_ms;
+    ap_splash_tick(a, now_ms);
     if (a->scr == SCR_QR && (int32_t)(now_ms - a->qr_until) >= 0) close_qr(a);
     /* idle: dim, then screen off (never while a browser is waiting for the user) */
     uint32_t idle = now_ms - a->last_input_ms;
@@ -630,6 +632,7 @@ void app_init(app *a, const app_platform *p, const cp_settings *cfg)
     a->font = cfg->large_font ? &ui_font_large : &ui_font_small;
     app_lock(a);
     a->msg[0] = 0;
+    if (cfg->splash) { a->scr = SCR_SPLASH; ap_mark_all(a); }
 }
 
 bool app_dirty(app *a, int *y0, int *y1)
@@ -907,6 +910,7 @@ void app_draw(app *a, ui_strip *s)
     char title[96];
     const char *hint = "";
     if (a->scr == SCR_QR) { draw_qr(a, s); return; }
+    if (a->scr == SCR_SPLASH) { ap_splash_draw(a, s); return; }
     switch (a->scr) {
     case SCR_PICKER: snprintf(title, sizeof title, "CardPass"); break;
     case SCR_UNLOCK: snprintf(title, sizeof title, "Unlock %s", a->dbname); break;

@@ -73,7 +73,7 @@ USB drive, set time, groups, change password, Bluetooth.
   would still open with the old password.
 - **Settings**: theme, text size, reveal mode, **animations (optional)**, auto-lock, dim and screen-off
   times, keyboard layout, typing speed, time zone, "weak below" threshold, expiry warning, default
-  auto-type sequence.
+  auto-type sequence, and the **splash screen** (the CardPass logo at start-up, about 2 s, any key skips it).
 
 ## Typing over USB, Bluetooth, and drive mode
 

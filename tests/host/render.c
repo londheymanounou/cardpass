@@ -268,6 +268,7 @@ int main(int argc, char **argv)
     cp_settings cfg;
     cp_settings_default(&cfg);
     cfg.tz_minutes = 120;
+    cfg.splash = false;                 /* the splash has its own test */
     cfg.animations = false;             /* all screenshots show the settled state; the animation test enables it */
 
     app_init(&A, &PLAT, &cfg);
@@ -973,6 +974,42 @@ int main(int argc, char **argv)
     snap("39_autolocked");
     CHECK(!A.db, "auto-lock");
     app_lock(&A);
+
+    /* splash: shown first when on, leaves by timer or any key, never when off, survives a settings round trip */
+    {
+        cp_settings sc;
+        cp_settings_default(&sc);
+        sc.animations = false;
+        CHECK(sc.splash, "splash is on by default");
+        char txt[1024];
+        CHECK(cp_settings_format(&sc, txt, sizeof txt) > 0 && strstr(txt, "splash=on"), "splash saved");
+        sc.splash = false;
+        cp_settings_format(&sc, txt, sizeof txt);
+        cp_settings back;
+        cp_settings_parse(&back, txt);
+        CHECK(!back.splash, "splash=off round trip");
+        sc.splash = true;
+        app_init(&A, &PLAT, &sc);
+        CHECK(A.scr == SCR_SPLASH, "starts on the splash");
+        snap("99_splash");
+        app_tick(&A, 1000);
+        app_tick(&A, 2500);
+        CHECK(A.scr == SCR_SPLASH, "still showing after 1.5 s");
+        app_tick(&A, 2900);
+        CHECK(A.scr == SCR_PICKER, "timer leaves the splash");
+        snap("100_after_splash");
+        app_init(&A, &PLAT, &sc);
+        key('x');
+        CHECK(A.scr == SCR_PICKER, "a key skips the splash (and is not typed anywhere)");
+        sc.splash = false;
+        sc.light = true;
+        app_init(&A, &PLAT, &sc);
+        CHECK(A.scr == SCR_PICKER, "no splash when off");
+        sc.splash = true;
+        app_init(&A, &PLAT, &sc);
+        snap("101_splash_light");
+        app_lock(&A);
+    }
 
     if (ui_overflow) printf("FAIL: %d pixels drawn past the panel edge\n", ui_overflow), failures++;
     printf("render: %d screens -> %s/, %d failures\n", shots, odir, failures);

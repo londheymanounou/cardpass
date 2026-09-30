@@ -205,6 +205,9 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
+- **Splash / logo**: a tilted blank card with a key inside (from the owner's sketch), drawn from distance
+  functions in `app_splash.c` (no bitmap, anti-aliased, follows the dark/light theme). Shown at start-up for
+  1.8 s, any key skips it, Settings -> Splash turns it off (`splash=off` in the settings file). Host-tested.
 - **Bluetooth typing** (plan stage 2): Tab menu -> Bluetooth. The radio is OFF until the user switches it
   on; it goes off again after 2 min without typing, on lock, and when USB drive mode starts. NimBLE
   HID-over-GATT keyboard "CardPass", LE Secure Connections with NUMERIC COMPARISON (6-digit code shown

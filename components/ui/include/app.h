@@ -63,7 +63,7 @@ typedef struct {
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW, SCR_BT,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW, SCR_BT, SCR_SPLASH,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
@@ -157,6 +157,7 @@ typedef struct {
     bool bt_on, bt_auto;       /* radio switched on by the user; screen opened by a pairing request */
     int bt_state, bt_return;
     uint32_t bt_code, bt_ms;
+    uint32_t splash_until;     /* 0 until the first tick */
 
     int power;                 /* 0 normal, 1 dimmed, 2 screen off */
     int bat_low;               /* consecutive low battery readings */
