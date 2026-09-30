@@ -13,9 +13,11 @@ probably dominates. Unlock runs the KDF once; a normal save reuses the derived k
    `esp_aes_acquire_hardware()`, one `aes_hal_setkey()`, then a tight loop of `aes_hal_transform_block()` on both
    16-byte halves, release at the end (headers: mbedtls/port/include/aes/esp_aes.h, hal/aes_hal.h). Device-only
    fast path; keep the mbedTLS loop for the host and as a fallback; check both against the existing KDF test vectors.
-2. **Unlock progress screen** (owner request): a dedicated screen while the KDF runs, with the percentage, elapsed
-   time and estimated time remaining (today there is only a percent bar on the unlock screen, `ap_kdf_progress`
-   in app.c). Must still wipe everything if it is cancelled or the battery dies; consider allowing Esc to cancel.
+2. **Unlock progress screen** (owner request; meant above all for Argon2id unlocking, which takes minutes):
+   DONE as a shared screen, `ap_draw_progress` in app.c: percentage, bar, elapsed time and estimated time left,
+   used by unlock, create and change-password. It hangs off the generic KDF progress callback, so the Argon2
+   swap work only has to call `kdbx_set_progress` like the AES-KDF loop does. Not done: cancelling with Esc (the
+   KDF loops would need an abort path through open/save/create).
 3. **"Target N seconds" for the round count** in Change password: time a few thousand rounds on the device and
    pick the round count for N seconds. A database tuned on a PC for 1 s can take much longer on the Cardputer.
 4. Stay at 240 MHz during the loop (DFS lock): small gain, cheap.

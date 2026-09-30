@@ -107,6 +107,7 @@ typedef struct {
     int pwlen;
     char msg[64];
     int progress;              /* KDF progress %, -1 = idle */
+    uint32_t progress_t0, progress_ms;   /* start, and time of the last update (ms); 0 = not started */
 
     kdbx_db *db;
     const kdbx_entry *recent[APP_RECENT];

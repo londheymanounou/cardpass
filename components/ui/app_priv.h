@@ -136,6 +136,8 @@ void ap_bt_key(app *a, uint32_t k, bool fn);
 void ap_bt_tick(app *a, uint32_t now);
 void ap_bt_draw(app *a, ui_strip *s, const char **hint);
 void ap_splash_draw(app *a, ui_strip *s);
+void ap_draw_progress(app *a, ui_strip *s, const char *title);   /* the shared "slow key derivation" screen */
+void ap_progress_end(app *a);
 void ap_splash_leave(app *a);
 void ap_splash_tick(app *a, uint32_t now);
 void ap_drive_key(app *a, uint32_t k, bool fn);

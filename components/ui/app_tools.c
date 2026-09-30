@@ -500,7 +500,7 @@ static void do_create(app *a)
     kdbx_set_progress(ap_kdf_progress, a);
     if (!e) e = kdbx_create(a->path, c->cipher, rounds, &key, c->name, now, &a->db);
     kdbx_set_progress(NULL, NULL);
-    a->progress = -1;
+    ap_progress_end(a);
     kdbx_key_wipe(&key);
     if (e) {
         snprintf(a->msg, sizeof a->msg, e == KDBX_ERR_IO ? "%s exists or SD error" : "%s", e == KDBX_ERR_IO ? file : kdbx_strerror(e));
@@ -550,12 +550,7 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
     struct app_create *c = a->cr;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     if (!c) return;
-    if (a->progress >= 0) {
-        ui_text(s, F, PAD * 2, CONTENT_Y + 24, "Creating\xE2\x80\xA6", T->fg, UI_W);
-        ui_fill(s, PAD * 2, CONTENT_Y + 50, UI_W - PAD * 4, 6, T->field_bg);
-        ui_fill(s, PAD * 2, CONTENT_Y + 50, (UI_W - PAD * 4) * a->progress / 100, 6, T->accent);
-        return;
-    }
+    if (a->progress >= 0) { ap_draw_progress(a, s, "Creating" "\xE2\x80\xA6"); return; }
     static const char *const names[] = {"Name", "Password", "Repeat", "Cipher", "Unlock in", "Key file", ""};
     for (int i = a->top; i < C_COUNT && i < a->top + ap_visible(a); i++) {
         int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);

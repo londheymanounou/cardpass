@@ -315,6 +315,7 @@ void app_lock(app *a)
     a->group = NULL;
     a->revealed = false;
     a->progress = -1;
+    a->progress_t0 = 0;
     ap_rescan_files(a);
     a->keyfile = 0;
     a->scr = SCR_PICKER;
@@ -324,9 +325,51 @@ void app_lock(app *a)
     ap_mark_all(a);
 }
 
+void ap_progress_end(app *a)
+{
+    a->progress = -1;
+    a->progress_t0 = 0;
+}
+
+static void mmss(char *out, size_t n, uint32_t ms)
+{
+    uint32_t s = (ms + 500) / 1000;
+    if (s >= 3600) snprintf(out, n, "%u:%02u:%02u", (unsigned)(s / 3600), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+    else snprintf(out, n, "%u:%02u", (unsigned)(s / 60), (unsigned)(s % 60));
+}
+
+/* Percentage, bar, elapsed time and an estimate of the time left. The clock is the time of the last update, so
+ * redrawing the same state always gives the same picture. */
+void ap_draw_progress(app *a, ui_strip *s, const char *title)
+{
+    int pct = a->progress < 0 ? 0 : a->progress > 100 ? 100 : a->progress;
+    char num[8], t1[16], t2[16], line[64];
+    snprintf(num, sizeof num, "%d%%", pct);
+    int nw = ui_text_width(F, num);
+    ui_text(s, F, PAD * 2, CONTENT_Y + 12, pct >= 100 ? "Almost done" "\xE2\x80\xA6" : title, T->fg, UI_W - PAD * 4 - nw - 6);
+    ui_text(s, F, UI_W - PAD * 2 - nw, CONTENT_Y + 12, num, T->accent, nw + 2);
+    int bw = UI_W - PAD * 4, by = CONTENT_Y + 40;
+    ui_fill(s, PAD * 2, by, bw, 8, T->field_bg);
+    ui_fill(s, PAD * 2, by, bw * pct / 100, 8, T->accent);
+    uint32_t el = a->progress_t0 ? a->progress_ms - a->progress_t0 : 0;
+    mmss(t1, sizeof t1, el);
+    if (pct >= 4 && pct < 100) {
+        mmss(t2, sizeof t2, (uint32_t)((uint64_t)el * (uint32_t)(100 - pct) / (uint32_t)pct));
+        snprintf(line, sizeof line, "%s elapsed, about %s left", t1, t2);
+    } else {
+        snprintf(line, sizeof line, pct >= 100 ? "%s elapsed" : "%s elapsed, estimating" "\xE2\x80\xA6", t1);
+    }
+    ui_text(s, &ui_font_small, PAD * 2, by + 16, line, T->dim, UI_W - PAD * 4);
+    ui_text(s, &ui_font_small, PAD * 2, by + 34, "Key derivation is slow on purpose.", T->dim, UI_W - PAD * 4);
+    ui_text(s, &ui_font_small, PAD * 2, by + 46, "Keep the device powered.", T->dim, UI_W - PAD * 4);
+}
+
 void ap_kdf_progress(void *ctx, int pct)
 {
     app *a = ctx;
+    uint32_t now = a->p->millis(a->p->ctx);
+    if (!a->progress_t0) a->progress_t0 = now ? now : 1;
+    a->progress_ms = now;
     if (pct == a->progress) return;
     a->progress = pct;
     ap_mark(a, CONTENT_Y, UI_H - FOOT_H);
@@ -354,7 +397,7 @@ static void unlock(app *a)
     if (f) fclose(f);
     kdbx_set_progress(NULL, NULL);
     kdbx_key_wipe(&k);
-    a->progress = -1;
+    ap_progress_end(a);
     if (e) {
         snprintf(a->msg, sizeof a->msg, "%s", kdbx_strerror(e));
         ap_mark_all(a);
@@ -943,13 +986,7 @@ static void draw_qr(app *a, ui_strip *s)
 static void draw_unlock(app *a, ui_strip *s)
 {
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-    if (a->progress >= 0) { /* KDF running */
-        ui_text(s, F, PAD * 2, CONTENT_Y + 24, "Unlocking\xE2\x80\xA6", T->fg, UI_W);
-        int bw = UI_W - PAD * 4, by = CONTENT_Y + 50;
-        ui_fill(s, PAD * 2, by, bw, 6, T->field_bg);
-        ui_fill(s, PAD * 2, by, bw * a->progress / 100, 6, T->accent);
-        return;
-    }
+    if (a->progress >= 0) { ap_draw_progress(a, s, "Unlocking" "\xE2\x80\xA6"); return; }
     ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 6, "Master password", T->dim, UI_W);
     int fy = CONTENT_Y + 20;
     ap_draw_field(a, s, PAD * 2, fy, UI_W - PAD * 4, F->height + 6, a->pw, true, a->pwlen);
@@ -1002,7 +1039,7 @@ void app_draw(app *a, ui_strip *s)
         break;
     case SCR_UNLOCK:
         draw_unlock(a, s);
-        hint = a->nkeyfiles ? U_ENTER " unlock  tab key file  fn+` back" : U_ENTER " unlock  fn+` back";
+        hint = a->progress >= 0 ? "" : a->nkeyfiles ? U_ENTER " unlock  tab key file  fn+` back" : U_ENTER " unlock  fn+` back";
         break;
     case SCR_HOME:
     case SCR_GROUP:

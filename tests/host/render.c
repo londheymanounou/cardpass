@@ -1011,6 +1011,27 @@ int main(int argc, char **argv)
         app_lock(&A);
     }
 
+    /* the shared progress screen: percentage, bar, elapsed time, estimate */
+    {
+        app_lock(&A);
+        app_init(&A, &PLAT, &cfg);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_UNLOCK, "unlock screen for the progress screen test");
+        A.progress_t0 = 1000;
+        const int steps[] = {1, 37, 100};
+        for (int i = 0; i < 3; i++) {
+            A.progress = steps[i];
+            A.progress_ms = 1000 + (steps[i] == 37 ? 12000 : steps[i] == 100 ? 31000 : 600);
+            ap_mark_all(&A);
+            char nm[32];
+            snprintf(nm, sizeof nm, "105_progress_%d", steps[i]);
+            snap(nm);
+        }
+        ap_progress_end(&A);
+        CHECK(A.progress == -1 && A.progress_t0 == 0, "progress reset");
+        app_lock(&A);
+    }
+
     /* splash: shown first when on, leaves by timer or any key, never when off, survives a settings round trip */
     {
         cp_settings sc;

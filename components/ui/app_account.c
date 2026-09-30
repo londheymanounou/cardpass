@@ -67,7 +67,7 @@ static void apply(app *a)
         kdbx_set_progress(ap_kdf_progress, a);
         e = f ? kdbx_check_key(f, &cur) : KDBX_ERR_IO;
         kdbx_set_progress(NULL, NULL);
-        a->progress = -1;
+        ap_progress_end(a);
         if (f) fclose(f);
     }
     kdbx_key_wipe(&cur);
@@ -152,12 +152,7 @@ void ap_account_draw(app *a, ui_strip *s, const char **hint)
     struct app_acct *c = a->acct;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     if (!c) return;
-    if (a->progress >= 0) {
-        ui_text(s, F, PAD * 2, CONTENT_Y + 24, "Working\xE2\x80\xA6", T->fg, UI_W);
-        ui_fill(s, PAD * 2, CONTENT_Y + 50, UI_W - PAD * 4, 6, T->field_bg);
-        ui_fill(s, PAD * 2, CONTENT_Y + 50, (UI_W - PAD * 4) * a->progress / 100, 6, T->accent);
-        return;
-    }
+    if (a->progress >= 0) { ap_draw_progress(a, s, "Working" "\xE2\x80\xA6"); return; }
     static const char *const names[] = {"Current", "New", "Repeat", "Key file", "Unlock in", ""};
     for (int i = a->top; i < A_COUNT && i < a->top + ap_visible(a); i++) {
         int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
