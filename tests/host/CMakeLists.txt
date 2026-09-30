@@ -93,3 +93,8 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/renders)
 add_executable(test_settings test_settings.c)
 target_link_libraries(test_settings ui)
 add_test(NAME settings COMMAND test_settings)
+
+if(WIN32)
+  add_executable(sim WIN32 sim.c)
+  target_link_libraries(sim ui gdi32 user32)
+endif()
