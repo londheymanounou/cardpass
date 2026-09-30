@@ -132,6 +132,16 @@ static void scroll_to_sel(app *a)
     if (a->sel >= a->top + vis) a->top = a->sel - vis + 1, ap_mark_all(a);
 }
 
+void ap_move_sel_in(app *a, int *sel, int *top, int n, int delta)
+{
+    if (!n) return;
+    *sel = (*sel + delta + n) % n;
+    int vis = ap_visible(a);
+    if (*sel < *top) *top = *sel;
+    if (*sel >= *top + vis) *top = *sel - vis + 1;
+    ap_mark_all(a);
+}
+
 void ap_move_sel(app *a, int n, int delta)
 {
     if (!n) return;
@@ -282,6 +292,7 @@ void app_lock(app *a)
     ap_edit_free(a);
     ap_gen_free(a);
     ap_create_free(a);
+    ap_time_free(a);
     ap_wipe(a->pw, sizeof a->pw);
     ap_wipe(a->query, sizeof a->query);
     ap_wipe(a->recent, sizeof a->recent);
@@ -527,6 +538,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_HELP: a->scr = a->menu_back; ap_mark_all(a); break;
     case SCR_FIDO: ap_fido_key(a, k, fn); break;
     case SCR_DRIVE: ap_drive_key(a, k, fn); break;
+    case SCR_TIME: ap_time_key(a, k, fn); break;
     }
 }
 
@@ -543,6 +555,7 @@ void app_tick(app *a, uint32_t now_ms)
     }
     if (prev / 1000 != now_ms / 1000) {
         ap_mark(a, 0, BAR_H); /* clock */
+        if (a->scr == SCR_TIME) ap_mark(a, CONTENT_Y, CONTENT_Y + 40);
         if (a->scr == SCR_ENTRY)
             for (int i = 0; i < a->nrows; i++)
                 if (a->rows[i].kind == R_TOTP) ap_mark_row(a, i);
@@ -615,13 +628,15 @@ void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, 
     if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, y + (h - ui_font_small.height) / 2, right, right_c, rw);
 }
 
-void ap_draw_scrollbar(app *a, ui_strip *s, int n)
+void ap_draw_scrollbar_in(app *a, ui_strip *s, int top, int n)
 {
     int vis = ap_visible(a);
     if (n <= vis) return;
-    int h = CONTENT_H * vis / n, y = CONTENT_Y + (CONTENT_H - h) * a->top / (n - vis);
+    int h = CONTENT_H * vis / n, y = CONTENT_Y + (CONTENT_H - h) * top / (n - vis);
     ui_fill(s, UI_W - 2, y, 2, h < 4 ? 4 : h, T->dim);
 }
+
+void ap_draw_scrollbar(app *a, ui_strip *s, int n) { ap_draw_scrollbar_in(a, s, a->top, n); }
 
 void ap_draw_list(app *a, ui_strip *s)
 {
@@ -847,6 +862,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_HELP: snprintf(title, sizeof title, "Keys"); break;
     case SCR_FIDO: snprintf(title, sizeof title, "%s Passkey", ICON_KEY); break;
     case SCR_DRIVE: snprintf(title, sizeof title, "%s USB drive", ICON_USB); break;
+    case SCR_TIME: snprintf(title, sizeof title, "%s Time", ICON_CLOCK); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
     }
     if (s->y0 < BAR_H) ap_draw_bar(a, s, title);
@@ -888,6 +904,11 @@ void app_draw(app *a, ui_strip *s)
         ap_draw_scrollbar(a, s, a->nrows);
         ap_draw_toast(a, s);
         hint = U_ENTER " type  A auto  E edit  Q qr  ? keys";
+        if (a->nrows && a->rows[a->sel].kind == R_TOTP) { /* the code needs the clock */
+            bool valid;
+            a->p->now(a->p->ctx, &valid);
+            if (!valid) hint = "T set the time  ` back";
+        }
         break;
     case SCR_MENU: ap_menu_draw(a, s, &hint); break;
     case SCR_EDIT: ap_edit_draw(a, s, &hint); break;
@@ -899,6 +920,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_HELP: ap_help_draw(a, s, &hint); break;
     case SCR_FIDO: ap_fido_draw(a, s, &hint); break;
     case SCR_DRIVE: ap_drive_draw(a, s, &hint); break;
+    case SCR_TIME: ap_time_draw(a, s, &hint); break;
     }
     ap_wipe(buf, REVEAL_MAX);
     free(buf);

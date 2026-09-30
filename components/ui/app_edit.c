@@ -199,6 +199,8 @@ bool ap_entry_key(app *a, uint32_t k, bool fn)
         else type_seq(a, kdbx_autotype(a->entry, a->cfg.autotype));
     } else if (k == 'f' || k == 'F') {
         toggle_favorite(a);
+    } else if (k == 't' || k == 'T') {
+        ap_time_open(a, SCR_ENTRY);
     } else if (k == 'e' || k == 'E') {
         ap_edit_open(a, a->entry, NULL);
     } else if (k == K_DEL || (fn && k == K_BACKSPACE)) {

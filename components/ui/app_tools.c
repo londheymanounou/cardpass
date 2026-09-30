@@ -27,7 +27,7 @@ void ap_return(app *a, int scr)
 
 /* ======================= menu ======================= */
 
-enum { M_NEW_ENTRY, M_GENERATOR, M_AUDIT, M_EXPIRY, M_SETTINGS, M_LOCK, M_NEW_DB, M_DRIVE };
+enum { M_NEW_ENTRY, M_GENERATOR, M_AUDIT, M_EXPIRY, M_SETTINGS, M_LOCK, M_NEW_DB, M_DRIVE, M_TIME };
 
 static int menu_items(app *a, int *out)
 {
@@ -40,10 +40,12 @@ static int menu_items(app *a, int *out)
         out[n++] = M_SETTINGS;
         out[n++] = M_LOCK;
         out[n++] = M_DRIVE;
+        out[n++] = M_TIME;
     } else {
         out[n++] = M_NEW_DB;
         out[n++] = M_SETTINGS;
         out[n++] = M_DRIVE;
+        out[n++] = M_TIME;
     }
     return n;
 }
@@ -60,7 +62,7 @@ void ap_menu_open(app *a)
 void ap_menu_key(app *a, uint32_t k, bool fn)
 {
     (void)fn;
-    int it[8], n = menu_items(a, it);
+    int it[10], n = menu_items(a, it);
     if (k == K_UP) ap_move_sel(a, n, -1);
     else if (k == K_DOWN) ap_move_sel(a, n, 1);
     else if (k == '`' || k == K_ESC || k == K_TAB) { if (a->menu_back == SCR_PICKER) a->scr = SCR_PICKER, a->sel = 0, ap_mark_all(a); else ap_return(a, a->menu_back); }
@@ -78,6 +80,7 @@ void ap_menu_key(app *a, uint32_t k, bool fn)
         case M_SETTINGS: a->scr = SCR_SETTINGS; a->sel = a->top = 0; a->text_edit = false; ap_mark_all(a); break;
         case M_LOCK: app_lock(a); break;
         case M_NEW_DB: ap_create_open(a); break;
+        case M_TIME: ap_time_open(a, back); break;
         case M_DRIVE: ap_confirm(a, CONFIRM_DRIVE, a->db ? "Lock and share the SD card with a PC?" : "Share the SD card with a PC?"); break;
         }
     }
@@ -86,9 +89,9 @@ void ap_menu_key(app *a, uint32_t k, bool fn)
 void ap_menu_draw(app *a, ui_strip *s, const char **hint)
 {
     static const char *const names[] = {"New entry", "Password generator", "Password audit", "Expiring entries",
-                                        "Settings", "Lock now", "New database", "USB drive"};
-    static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+", ICON_USB};
-    int it[8], n = menu_items(a, it);
+                                        "Settings", "Lock now", "New database", "USB drive", "Set time"};
+    static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+", ICON_USB, ICON_CLOCK};
+    int it[10], n = menu_items(a, it);
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     for (int i = 0; i < n; i++) ap_draw_row(a, s, i, icons[it[i]], T->accent, names[it[i]], NULL, 0);
     *hint = U_ENTER " choose  ` back";
@@ -113,8 +116,9 @@ void ap_apply_settings(app *a)
 {
     a->theme = a->cfg.light ? &ui_light : &ui_dark;
     a->font = a->cfg.large_font ? &ui_font_large : &ui_font_small;
-    char buf[512];
+    char buf[2048];
     if (cp_settings_format(&a->cfg, buf, sizeof buf)) a->p->save_settings(a->p->ctx, buf);
+    ap_wipe(buf, sizeof buf);                              /* may contain Wi-Fi passwords */
 }
 
 static void settings_change(app *a, int d)

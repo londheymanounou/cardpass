@@ -60,8 +60,31 @@ static void present(void *c);
 static void pump_fn(void *c);
 static bool drive_on;
 static bool usb_drive(void *c, bool enter) { (void)c; drive_on = enter; return true; }
+static void set_time_fn(void *c, int64_t t) { (void)c; now_s = t; time_valid = true; }
+static int scans, ntp_calls;
+static char ntp_ssid[40], ntp_pass[64];
+static int64_t ntp_time;
+static int wifi_scan_fn(void *c, app_ap *out, int max)
+{
+    (void)c; (void)max;
+    scans++;
+    snprintf(out[0].ssid, 33, "HomeWiFi"); out[0].secure = true; out[0].rssi = -40;
+    snprintf(out[1].ssid, 33, "Caf\xC3\xA9 Guest"); out[1].secure = false; out[1].rssi = -55;
+    snprintf(out[2].ssid, 33, "Neighbour"); out[2].secure = true; out[2].rssi = -70;
+    return 3;
+}
+static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
+{
+    (void)c;
+    ntp_calls++;
+    snprintf(ntp_ssid, sizeof ntp_ssid, "%s", ssid);
+    snprintf(ntp_pass, sizeof ntp_pass, "%s", pass);
+    if (!strcmp(pass, "wrong")) return NTP_ERR_PASSWORD;
+    *t = ntp_time;
+    return NTP_OK;
+}
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
-                                  save_settings, present, pump_fn, usb_drive, NULL};
+                                  save_settings, present, pump_fn, usb_drive, set_time_fn, wifi_scan_fn, ntp_sync_fn, NULL};
 
 static void draw_band(uint16_t *dst, int y0, int y1)
 {
@@ -184,6 +207,7 @@ static void select_row_kind(int kind)
 
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, NULL, _IONBF, 0); /* keep FAIL lines if a later step crashes */
     tdir = argc > 1 ? argv[1] : "testdata";
     odir = argc > 2 ? argv[2] : "renders";
     snprintf(wdir, sizeof wdir, "%s/db", odir);
@@ -381,6 +405,106 @@ int main(int argc, char **argv)
         CHECK(r == -1 && pump_n > 50 && A.db, "times out after 30 s: %d after %d passes", r, pump_n);
         key('l' | K_FN);
         CHECK(A.db == NULL || A.scr != SCR_FIDO, "not stuck in the modal");
+    }
+
+    /* setting the time (cfg.tz_minutes = 120): by hand, then over Wi-Fi */
+    {
+        if (A.db) app_lock(&A);
+        time_valid = false;
+        key(K_TAB);
+        keys(K_DOWN, 3);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_TIME, "time screen");
+        snap("50_time_not_set");
+        key(K_ENTER);
+        snap("51_time_manual_prefilled");
+        type("2026");
+        type("01");
+        type("15");
+        type("09");
+        type("30");
+        type("00");
+        key(K_ENTER);
+        CHECK(strstr(A.msg, "Before the firmware build"), "date before the build is refused: %s", A.msg);
+        snap("52_time_before_build");
+        keys(K_LEFT, 4);        /* seconds -> month */
+        type("13");
+        key(K_ENTER);
+        CHECK(strstr(A.msg, "valid"), "month 13 is refused: %s", A.msg);
+        snap("53_time_invalid");
+        key(K_LEFT);            /* typing 13 moved on to the day */
+        type("10");             /* month, moves on to the day */
+        type("15");             /* day, moves on to the hour */
+        snap("54_time_manual");
+        key(K_ENTER);
+        int64_t want = cp_unix_from_civil(2026, 10, 15, 9, 30, 0) - 120 * 60;
+        CHECK(time_valid && now_s == want && A.time_src == 1, "manual time set: %lld want %lld", (long long)now_s, (long long)want);
+        snap("55_time_set");
+
+        /* Wi-Fi: password once, saved afterwards */
+        ntp_time = cp_build_time() + 86400 * 30;
+        key(K_DOWN);
+        key(K_ENTER);
+        CHECK(scans == 1, "scan");
+        snap("56_wifi_list");
+        key(K_ENTER);           /* HomeWiFi: secured, unknown */
+        type("secret");
+        snap("57_wifi_password");
+        key(K_ENTER);
+        CHECK(ntp_calls == 1 && !strcmp(ntp_ssid, "HomeWiFi") && !strcmp(ntp_pass, "secret") && now_s == ntp_time && A.time_src == 2,
+              "synced over Wi-Fi");
+        CHECK(strstr(saved_settings, "wifi="), "network saved");
+        snap("58_wifi_done");
+        key(' ');
+        key(K_DOWN);
+        key(K_ENTER);
+        key(K_ENTER);           /* saved: no password asked */
+        CHECK(ntp_calls == 2 && !strcmp(ntp_pass, "secret") && A.tm != NULL, "saved network used");
+        key(' ');
+        key(K_DOWN);
+        key(K_ENTER);
+        keys(K_DOWN, 2);
+        key(K_ENTER);           /* Neighbour */
+        type("wrong");
+        key(K_ENTER);
+        snap("59_wifi_wrong_password");
+        key(K_ENTER);           /* retype */
+        CHECK(!strstr(A.msg, "x") && ntp_calls == 3, "wrong password reported");
+        key(K_ESC);
+        key(K_DOWN);            /* open network, server time is nonsense */
+        ntp_time = 1000;
+        key(K_ENTER);
+        CHECK(ntp_calls == 4 && now_s != 1000, "bad server time not applied");
+        snap("60_wifi_bad_time");
+        key(' ');
+        key(96);
+        CHECK(A.scr == SCR_PICKER, "left the time screen");
+
+        /* with a database open: manual only, Wi-Fi refused */
+        open_db("aes_kpxc.kdbx", "test");
+        key(K_TAB);
+        keys(K_DOWN, 7);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_TIME, "time screen while unlocked");
+        key(K_DOWN);
+        key(K_ENTER);
+        CHECK(scans == 3 && strstr(A.msg, "Lock"), "no Wi-Fi with a database open: %s", A.msg);
+        snap("61_time_unlocked");
+        key(96);
+        CHECK(A.scr == SCR_HOME, "back home");
+
+        /* the TOTP row offers a shortcut when the clock is not set */
+        time_valid = false;
+        select_title("Gmail");
+        key(K_ENTER);
+        select_row_kind(3);
+        snap("62_totp_no_time_hint");
+        key('t');
+        CHECK(A.scr == SCR_TIME, "T opens the time screen");
+        key(96);
+        CHECK(A.scr == SCR_ENTRY, "and returns to the entry");
+        time_valid = true;
+        now_s = 1790000000;
     }
 
     /* USB drive mode: locks first, a file copied on the PC shows up afterwards */

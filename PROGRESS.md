@@ -174,11 +174,22 @@ checked by independent readers with `python tools/check_saved.py`.
   drops MSC, remounts FAT, restores the composite HID device and rescans the files. Host-tested:
   locked before entering, nothing else reachable, a file copied meanwhile is listed afterwards.
   The SD/USB part is compile-verified only.
-- **Size with USB + drive mode: 538 KB app (13.5% of the 3.9 MB partition), static RAM 33 KB.** dist/CardPass.bin
+- **Setting the clock** (no RTC on the ADV): Tab menu -> "Set time" (also `T` on a TOTP row when the
+  time is not set). By hand: date + time fields (typed, arrows, +-1 with wrap), entered as LOCAL time,
+  converted to UTC with the time zone setting, live UTC preview, "set a few seconds ahead and press
+  Enter on the beat". Over Wi-Fi + NTP: scan list, password (masked) with "remember this network"
+  (up to 4, stored as hex in the settings text, i.e. NVS), saved networks reconnect without asking,
+  wrong password can be retyped, 10 s connect / 10 s NTP timeouts, pool.ntp.org + time.cloudflare.com.
+  Any time earlier than the firmware build date is rejected (also for manual entry). Wi-Fi is refused
+  while a database is open (in the app AND in main.c), the radio is fully deinitialised after every
+  call, and IDF stores no credentials (RAM storage, no NVS wifi data). "Set N min ago" shown.
+  Host-tested end to end with stubs (57 screens/checks). The radio/NTP driver is compile-verified only.
+- **Size with USB + drive mode + Wi-Fi: 902 KB app (22.6% of the 3.9 MB partition), static RAM 55 KB**
+  (Wi-Fi/lwIP driver state; freed when Wi-Fi is off). Before Wi-Fi: 538 KB / 33 KB. dist/CardPass.bin
   (launcher) and CardPass-full.bin (M5Burner, merged) come from tools/package.py; header validated.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
-- TODO: BLE HID, NTP/manual time, light sleep, real-device checks (docs/first-hardware.md).
+- TODO: BLE HID, light sleep, real-device checks (docs/first-hardware.md), optional Grove RTC.
 
 ## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its

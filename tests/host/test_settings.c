@@ -36,6 +36,36 @@ int main(void)
     cp_settings_parse(&t, big); /* long garbage line */
     CHECK(!memcmp(&t, &d, sizeof t), "garbage -> defaults");
 
+    /* Wi-Fi networks: round trip incl. odd characters, newest first, replace, cap */
+    cp_settings_default(&s);
+    cp_settings_wifi_save(&s, "Home", "pass:word\n=1");
+    cp_settings_wifi_save(&s, "Café", "é€");
+    cp_settings_wifi_save(&s, "Home", "new");
+    CHECK(s.nwifi == 2 && !strcmp(s.wifi_ssid[0], "Home") && !strcmp(s.wifi_pass[0], "new") && !strcmp(s.wifi_ssid[1], "Café"), "wifi order");
+    for (int i = 0; i < 6; i++) { char n2[8]; snprintf(n2, sizeof n2, "n%d", i); cp_settings_wifi_save(&s, n2, "p"); }
+    CHECK(s.nwifi == CP_WIFI_MAX && !strcmp(s.wifi_ssid[0], "n5") && cp_settings_wifi_find(&s, "Home") < 0, "wifi cap drops the oldest");
+    char wbuf[2048];
+    CHECK(cp_settings_format(&s, wbuf, sizeof wbuf) > 0, "wifi format");
+    cp_settings_parse(&t, wbuf);
+    bool same = s.nwifi == t.nwifi;
+    for (int i = 0; same && i < s.nwifi; i++) same = !strcmp(s.wifi_ssid[i], t.wifi_ssid[i]) && !strcmp(s.wifi_pass[i], t.wifi_pass[i]);
+    CHECK(same, "wifi round trip");
+    cp_settings_default(&s);
+    cp_settings_wifi_save(&s, "Odd", "pass:word\n=1");
+    cp_settings_format(&s, wbuf, sizeof wbuf);
+    cp_settings_parse(&t, wbuf);
+    CHECK(!strcmp(t.wifi_pass[0], "pass:word\n=1"), "wifi password with separators");
+    cp_settings_parse(&t, "wifi=zz:00\nwifi=414:41\nwifi=41\n");
+    CHECK(t.nwifi == 0, "bad wifi lines ignored");
+
+    /* time math against independently computed values (python calendar.timegm) */
+    CHECK(cp_unix_from_civil(1970, 1, 1, 0, 0, 0) == 0, "epoch");
+    CHECK(cp_unix_from_civil(2026, 9, 30, 12, 0, 0) == 1790769600LL, "2026-09-30 12:00 = %lld", (long long)cp_unix_from_civil(2026, 9, 30, 12, 0, 0));
+    CHECK(cp_unix_from_civil(2000, 2, 29, 23, 59, 59) == 951868799LL, "leap day 2000");
+    CHECK(cp_unix_from_civil(2100, 3, 1, 0, 0, 0) == 4107542400LL, "2100 is not a leap year");
+    CHECK(cp_days_in_month(2024, 2) == 29 && cp_days_in_month(2100, 2) == 28 && cp_days_in_month(2026, 4) == 30, "days in month");
+    CHECK(cp_build_time() > 1780000000LL && cp_build_time() < 4102444800LL, "build time %lld", (long long)cp_build_time());
+
     printf("settings: %d failures\n", failures);
     return failures != 0;
 }

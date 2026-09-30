@@ -120,9 +120,16 @@ static void pump(void *ctx)
 }
 
 static bool usb_drive(void *ctx, bool enter) { return hw_usb_drive(enter); }
+static void set_time_fn(void *ctx, int64_t t) { hw_time_set(t); }
+/* Wi-Fi only while locked: enforced here as well as in the app (PLAN.md section 2). */
+static int wifi_scan_fn(void *ctx, app_ap *out, int max) { return A.db ? 0 : hw_wifi_scan(out, max); }
+static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t)
+{
+    return A.db ? NTP_ERR_CONNECT : hw_ntp_sync(ssid, pass, t);
+}
 
 static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
-                                      save_settings, present, pump, usb_drive, NULL};
+                                      save_settings, present, pump, usb_drive, set_time_fn, wifi_scan_fn, ntp_sync_fn, NULL};
 
 void app_main(void)
 {
@@ -137,7 +144,7 @@ void app_main(void)
     hw_usb_init();
     ctaphid_init(&HID);
 
-    char text[512];
+    char text[2048];
     cp_settings cfg;
     hw_settings_load(text, sizeof text);
     cp_settings_parse(&cfg, text);

@@ -55,6 +55,14 @@ list it; a database copied back out must open in KeePassXC. Things to watch: the
 remount after leaving (otherwise "SD card not remounted: reinsert it"), the keyboard/security key
 must come back afterwards, and copying a large file must not corrupt it (compare checksums).
 
+## 3d. Clock
+
+Menu -> Set time. By hand: the entered local time must become the correct UTC (check a TOTP code
+against KeePassXC right after). Wi-Fi: the scan list must show your networks; sync must set the
+time within a second or two of a phone. Check that Wi-Fi is really off afterwards (current draw)
+and that a wrong password is reported as such (the reason codes differ between routers). Free heap
+(`esp_get_free_heap_size`) before and after a sync must be the same: the radio must be fully released.
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |

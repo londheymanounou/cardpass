@@ -20,6 +20,9 @@ enum {
 #define K_CTRL 0x2000000u
 #define K_KEY(k) ((k) & 0xFFFFFFu)
 
+typedef struct { char ssid[33]; bool secure; int8_t rssi; } app_ap;
+enum { NTP_OK = 0, NTP_ERR_CONNECT = 1, NTP_ERR_PASSWORD = 2, NTP_ERR_SERVER = 3, NTP_ERR_BAD_TIME = 4 };
+
 typedef struct {
     /* Names of files in the database folder ending with ext (".kdbx", ".keyx", ".key"). */
     int (*list_files)(void *ctx, const char *ext, char names[][64], int max);
@@ -38,12 +41,17 @@ typedef struct {
     /* USB drive mode: enter = unmount the card and expose it to the PC (false: failed);
      * leave = stop and remount. The app has locked and wiped the database before entering. */
     bool (*usb_drive)(void *ctx, bool enter);
+    /* Clock. set_time: system clock (UTC). Wi-Fi is on ONLY inside wifi_scan / ntp_sync and the
+     * app never calls them while a database is open. ntp_sync: connect, query, switch Wi-Fi off. */
+    void (*set_time)(void *ctx, int64_t unix_s);
+    int (*wifi_scan)(void *ctx, app_ap *out, int max);
+    int (*ntp_sync)(void *ctx, const char *ssid, const char *pass, int64_t *unix_s);
     void *ctx;
 } app_platform;
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
@@ -61,6 +69,7 @@ typedef struct {
 } app_row;
 
 struct app_edit;
+struct app_time;
 struct app_gen;
 struct app_create;
 
@@ -121,6 +130,10 @@ typedef struct {
     char frp[64];
     int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
     bool fido_active;
+
+    int time_src;              /* 0 unknown, 1 by hand, 2 over Wi-Fi */
+    uint32_t time_set_ms;      /* app clock when it was set: "set 4 min ago" */
+    struct app_time *tm;
 
     struct app_edit *ed;
     struct app_gen *gen;

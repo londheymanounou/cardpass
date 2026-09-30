@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "app.h"
 #include "sdmmc_cmd.h"
 
 /* display: 240x135 landscape ST7789, pushed in strips */
@@ -38,6 +39,10 @@ bool hw_usb_ready(void);                                  /* enumerated and not 
 void hw_usb_stroke(uint8_t key, uint8_t mods);
 bool hw_usb_fido_recv(uint8_t report[64]);                /* non-blocking */
 void hw_usb_fido_send(const uint8_t report[64]);
+
+/* Wi-Fi: ONLY to set the clock; radio fully off again on return. Never call with a database open. */
+int hw_wifi_scan(app_ap *out, int max);                   /* number of networks */
+int hw_ntp_sync(const char *ssid, const char *pass, int64_t *unix_s);   /* NTP_* code from app.h */
 
 /* misc */
 int hw_battery_percent(void);                             /* -1 unknown */
