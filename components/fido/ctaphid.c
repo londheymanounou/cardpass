@@ -5,7 +5,7 @@
 #include "fido.h"
 
 enum {
-    CMD_PING = 0x81, CMD_MSG = 0x83, CMD_INIT = 0x86, CMD_WINK = 0x88, CMD_CBOR = 0x90, CMD_CANCEL = 0x91,
+    CMD_PING = 0x81, CMD_MSG = 0x83, CMD_INIT = 0x86, CMD_WINK = 0x88, CMD_CBOR = 0x90, CMD_CANCEL = 0x91, CMD_KEEPALIVE = 0xBB,
     CMD_ERROR = 0xBF,
 };
 enum { ERR_INVALID_CMD = 0x01, ERR_INVALID_PAR = 0x02, ERR_INVALID_LEN = 0x03, ERR_INVALID_SEQ = 0x04,
@@ -48,6 +48,13 @@ static void send_msg(uint32_t cid, uint8_t cmd, const uint8_t *d, size_t n, ctap
 }
 
 static void send_err(uint32_t cid, uint8_t err, ctaphid_send send, void *ctx) { send_msg(cid, CMD_ERROR, &err, 1, send, ctx); }
+
+/* While waiting for the user: hosts expect a KEEPALIVE (status 2 = user presence needed) every ~100 ms. */
+void ctaphid_keepalive(ctaphid *h, ctaphid_send send, void *ctx)
+{
+    uint8_t status = 2;
+    send_msg(h->cid, CMD_KEEPALIVE, &status, 1, send, ctx);
+}
 
 static void dispatch(ctaphid *h, const fido_env *env, ctaphid_send send, void *ctx)
 {

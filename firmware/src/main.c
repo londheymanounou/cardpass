@@ -61,8 +61,8 @@ static int64_t now_fn(void *ctx, bool *valid)
 
 static uint32_t millis_fn(void *ctx) { return hw_millis(); }
 static int battery_fn(void *ctx) { return hw_battery_percent(); }
-static bool hid_ready(void *ctx) { return false; }                       /* USB / BLE HID: next step */
-static void stroke(void *ctx, uint8_t key, uint8_t mods) {}
+static bool hid_ready(void *ctx) { return hw_usb_ready(); }               /* BLE HID: later */
+static void stroke(void *ctx, uint8_t key, uint8_t mods) { hw_usb_stroke(key, mods); }
 static void delay_ms(void *ctx, int ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
 
 static void save_settings(void *ctx, const char *text)
@@ -87,10 +87,40 @@ static void present(void *ctx)
     vTaskDelay(1); /* let the idle task and watchdog run during long operations (KDF, save) */
 }
 
-static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
-                                      save_settings, present, NULL};
-
 static void on_key(uint32_t key, bool down) { app_key(&A, key, down); }
+
+/* ---- passkeys over USB (CTAPHID): reports are queued by the USB task, handled here ---- */
+static ctaphid HID;
+static bool fido_modal;
+static uint32_t keepalive_at;
+
+static void usb_send(void *ctx, const uint8_t report[64]) { hw_usb_fido_send(report); }
+
+static int fido_choose(void *ctx, const char *rp, const fido_cred *creds, size_t n)
+{
+    fido_modal = true;
+    keepalive_at = 0;
+    int r = app_ask_passkey(&A, rp, creds, n);
+    fido_modal = false;
+    return r;
+}
+
+/* One pass of the device loop; also what modal screens (passkey confirmation) run while they wait. */
+static void pump(void *ctx)
+{
+    uint32_t now = hw_millis();
+    hw_keys_poll(on_key, now);
+    app_tick(&A, now);
+    present(NULL);
+    if (fido_modal && (int32_t)(now - keepalive_at) >= 0) {     /* tell the browser we are waiting for the user */
+        ctaphid_keepalive(&HID, usb_send, NULL);
+        keepalive_at = now + 100;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+}
+
+static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
+                                      save_settings, present, pump, NULL};
 
 void app_main(void)
 {
@@ -102,6 +132,8 @@ void app_main(void)
     hw_display_init();
     hw_keys_init();
     hw_sd_mount();
+    hw_usb_init();
+    ctaphid_init(&HID);
 
     char text[512];
     cp_settings cfg;
@@ -112,10 +144,11 @@ void app_main(void)
     app_init(&A, &PLATFORM, &cfg);
     present(NULL);
     for (;;) {
-        uint32_t now = hw_millis();
-        hw_keys_poll(on_key, now);
-        app_tick(&A, now);
-        present(NULL);
-        vTaskDelay(pdMS_TO_TICKS(10));
+        pump(NULL);
+        uint8_t report[64];
+        while (hw_usb_fido_recv(report)) {
+            fido_env env = {A.db, fido_choose, NULL};    /* db NULL while locked: requests are refused */
+            ctaphid_report(&HID, report, &env, usb_send, NULL);
+        }
     }
 }

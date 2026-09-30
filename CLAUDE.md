@@ -43,6 +43,18 @@ Work one stage per session; update `PROGRESS.md` at the end.
   vs pykeepass + keepassxc-cli), `gen_wordlist.py`.
 - `testdata/` — test databases only (passwords in `tools/ref_dump.py`, not secrets).
 
+## Firmware (ESP-IDF 5.5 via PlatformIO)
+
+```
+cd firmware && python -m platformio run      # -> firmware/.pio/build/cardputer-adv/firmware.bin
+python tools/package.py                      # -> dist/CardPass.bin (launcher), dist/CardPass-full.bin (M5Burner)
+```
+`firmware/src` = hardware layer (display, TCA8418 keyboard, SD, battery, NVS settings, RNG) + main loop;
+everything else is the shared `components/`. IDF builds with -Werror, so it finds real bugs the
+host build misses. Nothing has run on a device yet: see `docs/first-hardware.md`.
+PlatformIO gotcha: it passes `src/` in `EXTRA_COMPONENT_DIRS`; the root CMakeLists must APPEND to it.
+Disk: C: and D: are nearly full on this machine (PlatformIO + IDF is ~5 GB under ~/.platformio).
+
 ## Host build
 
 ```

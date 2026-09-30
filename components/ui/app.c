@@ -454,14 +454,14 @@ void app_key(app *a, uint32_t key, bool down)
         return;
     }
     if (!down) return;
-    if (fn && (k == 'l' || k == 'L') && a->db) { app_lock(a); return; } /* fn+L: lock now */
+    if (fn && (k == 'l' || k == 'L') && a->db && !a->fido_active) { app_lock(a); return; } /* fn+L: lock now */
     if (k == K_TAB && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
                        a->scr == SCR_ENTRY)) {
         ap_menu_open(a);
         return;
     }
     if (k == '?' && a->scr != SCR_UNLOCK && a->scr != SCR_EDIT && a->scr != SCR_SEARCH && a->scr != SCR_CREATE &&
-        a->scr != SCR_HELP && a->scr != SCR_QR) {
+        a->scr != SCR_HELP && a->scr != SCR_QR && a->scr != SCR_FIDO) {
         a->menu_back = a->scr;
         a->scr = SCR_HELP;
         ap_mark_all(a);
@@ -524,6 +524,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_CONFIRM: ap_confirm_key(a, k, fn); break;
     case SCR_CREATE: ap_create_key(a, k, fn); break;
     case SCR_HELP: a->scr = a->menu_back; ap_mark_all(a); break;
+    case SCR_FIDO: ap_fido_key(a, k, fn); break;
     }
 }
 
@@ -533,7 +534,7 @@ void app_tick(app *a, uint32_t now_ms)
     a->now_ms = now_ms;
     if (a->scr == SCR_QR && (int32_t)(now_ms - a->qr_until) >= 0) close_qr(a);
     uint32_t lock_ms = (uint32_t)a->cfg.autolock_s * 1000u;
-    if (a->db && lock_ms && now_ms - a->last_input_ms > lock_ms) {
+    if (a->db && lock_ms && !a->fido_active && now_ms - a->last_input_ms > lock_ms) {
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, "Locked after inactivity");
         return;
@@ -842,6 +843,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_EXPIRY: snprintf(title, sizeof title, "%s Expiring", ICON_CLOCK); break;
     case SCR_CREATE: snprintf(title, sizeof title, "New database"); break;
     case SCR_HELP: snprintf(title, sizeof title, "Keys"); break;
+    case SCR_FIDO: snprintf(title, sizeof title, "%s Passkey", ICON_KEY); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
     }
     if (s->y0 < BAR_H) ap_draw_bar(a, s, title);
@@ -892,6 +894,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_CONFIRM: ap_confirm_draw(a, s, &hint); break;
     case SCR_CREATE: ap_create_draw(a, s, &hint); break;
     case SCR_HELP: ap_help_draw(a, s, &hint); break;
+    case SCR_FIDO: ap_fido_draw(a, s, &hint); break;
     }
     ap_wipe(buf, REVEAL_MAX);
     free(buf);

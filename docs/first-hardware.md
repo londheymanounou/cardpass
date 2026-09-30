@@ -36,6 +36,17 @@ table: if a key types the wrong character, the `MAP` table in `hw_keys.c` is the
 Pins SCK 40, MISO 39, MOSI 14, CS 12 (verified on an ADV in the sibling firmware). Databases are
 found in `/cardpass/` first, then the card root. A new database is created in `/cardpass/`.
 
+## 3b. USB typing and passkeys
+
+Plug into a PC: it must enumerate as "CardPass" (a keyboard + a security key). Unlock a database,
+open an entry, plug in, press Enter on the User row: the text must appear in a text editor;
+try each layout (settings -> Keyboard) with the accented test entries. Passkeys: sign in at
+webauthn.io with a passkey created in KeePassXC: the confirmation screen must appear (Enter
+approves). If a browser gives up while waiting, the KEEPALIVE timing is the place to look
+(`pump()` in `main.c`). Windows can require "Windows Hello / security key" dialogs to be
+dismissed first. Also verify that the serial-JTAG port really disappears while the app runs
+(PLAN.md section 5b).
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |

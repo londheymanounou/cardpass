@@ -25,6 +25,13 @@ bool hw_sd_ok(void);
 #define HW_SD_ROOT "/sd"
 #define HW_DB_DIR "/sd/cardpass"
 
+/* USB device: HID keyboard + FIDO HID */
+bool hw_usb_init(void);
+bool hw_usb_ready(void);                                  /* enumerated and not suspended */
+void hw_usb_stroke(uint8_t key, uint8_t mods);
+bool hw_usb_fido_recv(uint8_t report[64]);                /* non-blocking */
+void hw_usb_fido_send(const uint8_t report[64]);
+
 /* misc */
 int hw_battery_percent(void);                             /* -1 unknown */
 uint32_t hw_millis(void);

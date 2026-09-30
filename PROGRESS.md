@@ -151,7 +151,30 @@ checked by independent readers with `python tools/check_saved.py`.
 - Moving a large group holds its subtree in RAM during save.
 - Host Windows gcc has no ASan: sanitizer runs use WSL.
 
-## Framework decision (open)
+## Firmware skeleton: BUILDS (2026-09-30), never run on a device
+- Framework decided and installed: PlatformIO `espressif32@6.12.0` + ESP-IDF 5.5 (mbedTLS 3.6).
+- `firmware/`: platformio.ini, launcher-compatible partitions (same as ../deck), sdkconfig.defaults
+  (silent panics, log NONE, no coredump, no secure boot / flash encryption, ChaCha20, LFN FAT).
+  `firmware/src`: hw_display.c (ST7789 via esp_lcd panel-IO, M5GFX values), hw_keys.c (TCA8418,
+  FIFO drain + wedge watchdog), hw_sd.c (pins verified in ../deck), hw_misc.c (RNG pool under
+  bootloader_random, ADC battery, NVS settings, time), main.c (platform vtable + loop).
+- Every shared component got a CMakeLists.txt; the whole app compiles for the ESP32-S3 with -Werror.
+  IDF found real issues the host build had not: message truncations, an uninitialised variable, and
+  the ROM `miniz.h` location.
+- USB (esp_tinyusb 1.7.6 managed component, fetched by the IDF component manager): composite device
+  with a HID keyboard (typing, `hw_usb_stroke`) and a FIDO HID interface. FIDO reports are queued
+  by the USB task and handled in the main loop; a browser request opens a modal confirmation
+  screen (`app_ask_passkey`: choose account, Enter approves, ` denies, 30 s timeout, auto-lock and
+  fn+L suspended meanwhile) while CTAPHID KEEPALIVE packets go out every 100 ms. CDC (serial) is
+  disabled: nothing can leak through the port.
+- **Size with USB: 527 KB app (13.2% of the 3.9 MB partition), static RAM 29 KB.** dist/CardPass.bin
+  (launcher) and CardPass-full.bin (M5Burner, merged) come from tools/package.py; header validated.
+- Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
+  Everything USB-specific is compile-verified only.
+- TODO: USB mass storage (SD as a drive, locks + unmounts), BLE HID, NTP/manual time, light sleep,
+  real-device checks (docs/first-hardware.md).
+
+## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its
   lessons are in this repo's notes (TCA8418 INT pin 11, drain the FIFO, wedge watchdog; RAM ceiling).
   Its code is PolyForm-Noncommercial: ideas only, nothing copied.

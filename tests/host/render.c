@@ -57,8 +57,9 @@ static void delay_fn(void *c, int d) { (void)c; (void)d; }
 static char saved_settings[512];
 static void save_settings(void *c, const char *t) { (void)c; snprintf(saved_settings, sizeof saved_settings, "%s", t); }
 static void present(void *c);
+static void pump_fn(void *c);
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
-                                  save_settings, present, NULL};
+                                  save_settings, present, pump_fn, NULL};
 
 static void draw_band(uint16_t *dst, int y0, int y1)
 {
@@ -114,6 +115,20 @@ static void snap(const char *name)
     write_png(name, panel, 1);
     write_png(name, panel, 3);
     shots++;
+}
+
+static void snap(const char *name);
+static void key(uint32_t k);
+static int pump_script, pump_n;
+/* stands in for the device loop while a passkey confirmation is showing */
+static void pump_fn(void *c)
+{
+    (void)c;
+    pump_n++;
+    app_tick(&A, A.now_ms + 500);
+    if (pump_script == 1 && pump_n == 2) { snap("40_passkey_confirm"); key(K_DOWN); }
+    if (pump_script == 1 && pump_n == 3) key(K_ENTER);
+    if (pump_script == 2 && pump_n == 2) key('`');
 }
 
 static void key(uint32_t k) { app_key(&A, k, true); app_key(&A, k, false); }
@@ -346,6 +361,25 @@ int main(int argc, char **argv)
     type("alice");
     key(K_ENTER);
     snap("32_passkey_entry");
+
+    /* passkey confirmation (what a browser triggers over USB) */
+    {
+        fido_cred creds[4];
+        size_t nc = fido_find(A.db, "webauthn.io", creds, 4);
+        CHECK(nc == 2, "two webauthn.io passkeys");
+        int scr = A.scr;
+        pump_script = 1, pump_n = 0;
+        int r = app_ask_passkey(&A, "webauthn.io", creds, nc);
+        CHECK(r == 1 && A.scr == scr && !A.fido_active, "approved second account: %d", r);
+        pump_script = 2, pump_n = 0;
+        r = app_ask_passkey(&A, "webauthn.io", creds, nc);
+        CHECK(r == -1 && A.scr == scr, "denied: %d", r);
+        pump_script = 0;
+        r = app_ask_passkey(&A, "webauthn.io", creds, nc);
+        CHECK(r == -1 && pump_n > 50 && A.db, "times out after 30 s: %d after %d passes", r, pump_n);
+        key('l' | K_FN);
+        CHECK(A.db == NULL || A.scr != SCR_FIDO, "not stuck in the modal");
+    }
 
     /* key file: tab cycles */
     app_lock(&A);

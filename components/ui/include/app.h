@@ -7,6 +7,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include "fido.h"
 #include "kdbx.h"
 #include "settings.h"
 #include "ui.h"
@@ -33,12 +34,13 @@ typedef struct {
     void (*delay)(void *ctx, int ms);
     void (*save_settings)(void *ctx, const char *text);
     void (*present)(void *ctx);                /* push dirty strips now (progress during long work) */
+    void (*pump)(void *ctx);                   /* one loop pass: keys, app_tick, present (modal screens) */
     void *ctx;
 } app_platform;
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
@@ -110,6 +112,13 @@ typedef struct {
     char confirm_text[64];
     bool weak_only, text_edit;
 
+    /* passkey confirmation (modal, while a browser waits) */
+    const fido_cred *fcreds;
+    size_t nfcreds;
+    char frp[64];
+    int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
+    bool fido_active;
+
     struct app_edit *ed;
     struct app_gen *gen;
     struct app_create *cr;
@@ -122,3 +131,5 @@ void app_tick(app *a, uint32_t now_ms);      /* auto-lock, TOTP countdown, QR ti
 void app_lock(app *a);                        /* wipe everything, back to the picker */
 bool app_dirty(app *a, int *y0, int *y1);     /* dirty band, then cleared */
 void app_draw(app *a, ui_strip *s);           /* draws the whole screen clipped to s */
+/* Modal passkey confirmation for fido_env.choose: returns the chosen index or -1 (denied/timeout). */
+int app_ask_passkey(app *a, const char *rp, const fido_cred *creds, size_t n);

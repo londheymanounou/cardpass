@@ -5,3 +5,5 @@ firmware/.pio/
 firmware/sdkconfig.*
 firmware/.vscode/
 dist/
+firmware/managed_components/
+firmware/dependencies.lock

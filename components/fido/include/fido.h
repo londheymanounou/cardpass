@@ -54,6 +54,8 @@ typedef struct {
 typedef void (*ctaphid_send)(void *ctx, const uint8_t report[64]);
 
 void ctaphid_init(ctaphid *h);
+/* While choose() waits for the user, call this ~every 100 ms (KEEPALIVE, "user presence needed"). */
+void ctaphid_keepalive(ctaphid *h, ctaphid_send send, void *ctx);
 /* Feed one output report from the host; complete messages are handled (CBOR via
  * ctap2_handle) and the reply is sent as input reports through send. */
 void ctaphid_report(ctaphid *h, const uint8_t report[64], const fido_env *env, ctaphid_send send, void *ctx);
