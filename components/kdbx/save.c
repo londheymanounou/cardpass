@@ -24,8 +24,8 @@
 #include <unistd.h>
 #endif
 
-#define BLOCK (16 * 1024)   /* HMAC block size written (KeePass accepts any) */
-#define STORED 16384        /* deflate chunk (positions must fit uint16) */
+#define BLOCK (8 * 1024)    /* HMAC block size written (KeePass accepts any) */
+#define STORED 8192         /* deflate chunk (positions must fit uint16) */
 #define MAXD XML_MAX_DEPTH
 #define TICKS_TO_UNIX 62135596800LL
 #define DEFAULT_HISTORY_MAX 10
@@ -1277,9 +1277,39 @@ static bool valid_edits(const kdbx_db *db, const kdbx_edit *ed, size_t n, uint64
     return true;
 }
 
-kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
-                   const kdbx_key *newkey, uint64_t rounds, kdbx_db **newdb)
+static kdbx_err check_xml(void *ctx, const uint8_t *d, size_t n)
 {
+    for (size_t i = 0; i < n; i++)
+        if (yxml_parse(ctx, d[i]) < 0) return KDBX_ERR_CORRUPT;
+    return KDBX_OK;
+}
+
+/* Full read of a written file without building an index: HMACs, decryption,
+ * inflate, inner header, well-formed XML. */
+static kdbx_err verify_file(const char *path, const uint8_t tk[32])
+{
+    struct { yxml_t x; uint8_t stack[2048]; kdbx_header h; } *v = malloc(sizeof *v);
+    FILE *f = fopen(path, "rb");
+    uint8_t t2[32];
+    kdbx_err err = !v ? KDBX_ERR_NOMEM : !f ? KDBX_ERR_IO : KDBX_OK;
+    if (!err) {
+        kdbx_sink s = {check_xml, NULL, &v->x, {0}, {0}};
+        yxml_init(&v->x, v->stack, sizeof v->stack);
+        memcpy(t2, tk, 32);
+        err = kdbx_read_file(f, NULL, t2, &v->h, &s);
+        if (!err && yxml_eof(&v->x) != YXML_OK) err = KDBX_ERR_CORRUPT;
+        mbedtls_platform_zeroize(&s, sizeof s);
+        mbedtls_platform_zeroize(t2, sizeof t2);
+    }
+    if (f) fclose(f);
+    free(v);
+    return err;
+}
+
+kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
+                   const kdbx_key *newkey, uint64_t rounds)
+{
+    const kdbx_db *db = *dbp;
     size_t pl = strlen(path);
     char *tmp = malloc(pl + 5), *bak = malloc(pl + 5);
     saver *s = calloc(1, sizeof *s);
@@ -1293,7 +1323,6 @@ kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, 
     bool renaming = false;
     kdbx_err err = KDBX_ERR_NOMEM;
 
-    *newdb = NULL;
     if (o) out_init(o);
     if (!tmp || !bak || !s || !o || !h || !nh || !appl || !cap || !capd) goto done;
     if (!valid_edits(db, edits, nedits, rounds, newkey)) { err = KDBX_ERR_EDIT; goto done; }
@@ -1341,25 +1370,22 @@ kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, 
     fclose(in);
     in = NULL;
 
-    /* verify by re-opening, then swap files */
-    FILE *t = fopen(tmp, "rb");
-    if (!t) { err = KDBX_ERR_IO; goto done; }
-    err = kdbx_open_tk(t, NULL, tk_new, newdb);
-    fclose(t);
-    if (err) goto done;
+    /* verify, swap files, then swap indexes (old freed before the new one is built) */
+    if ((err = verify_file(tmp, tk_new)) != KDBX_OK) goto done;
     remove(bak);
     if (rename(path, bak)) { err = KDBX_ERR_IO; goto done; }
     renaming = true;
     if (rename(tmp, path)) { err = KDBX_ERR_IO; goto done; } /* kdbx_recover() finishes this */
+    kdbx_close(*dbp);
+    *dbp = NULL;
+    FILE *t = fopen(path, "rb");
+    err = t ? kdbx_open_tk(t, NULL, tk_new, dbp) : KDBX_ERR_IO;
+    if (t) fclose(t);
 
 done:
     if (out) fclose(out);
     if (in) fclose(in);
-    if (err) {
-        if (!renaming && tmp) remove(tmp);
-        kdbx_close(*newdb);
-        *newdb = NULL;
-    }
+    if (err && !renaming && tmp) remove(tmp);
     if (s) {
         tbuf *bufs[] = {&s->attrs, &s->text, &s->plain, &s->pend, &s->ebuf, &s->uuid_text, &s->deleted};
         for (size_t i = 0; i < sizeof bufs / sizeof *bufs; i++) tbuf_free(bufs[i]);

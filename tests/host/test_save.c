@@ -114,8 +114,8 @@ static bool same_index(const kdbx_db *a, const kdbx_db *b)
             memcmp(e->group->uuid, f->group->uuid, 16))
             return false;
         int fa = 0, fb = 0;
-        for (const kdbx_field *x = f->fields; x; x = x->next) fb++;
-        for (const kdbx_field *x = e->fields; x; x = x->next, fa++) {
+        fb = f->nfields;
+        for (const kdbx_field *x = e->fields; x < e->fields + e->nfields; x++, fa++) {
             const kdbx_field *y = kdbx_field_get(f, x->key);
             if (!y || (x->stream_off == KDBX_PLAIN) != (y->stream_off == KDBX_PLAIN)) return false;
             kdbx_reveal(a, x, va, sizeof va);
@@ -129,13 +129,7 @@ static bool same_index(const kdbx_db *a, const kdbx_db *b)
 
 static kdbx_err save(kdbx_db **db, const char *path, const kdbx_edit *ed, size_t n)
 {
-    kdbx_db *nd;
-    kdbx_err e = kdbx_save(*db, path, ed, n, NOW, NULL, 0, &nd);
-    if (!e) {
-        kdbx_close(*db);
-        *db = nd;
-    }
-    return e;
+    return kdbx_save(db, path, ed, n, NOW, NULL, 0);
 }
 
 static void noop(const char *name, const char *pw, const char *keyfile)
@@ -148,8 +142,9 @@ static void noop(const char *name, const char *pw, const char *keyfile)
     CHECK(copy_file(src, dst), "copy %s", name);
     kdbx_db *orig, *saved, *reread;
     CHECK(open_key(dst, pw, keyfile ? kf : NULL, &orig) == KDBX_OK, "open %s", name);
-    if (!orig) return;
-    kdbx_err e = kdbx_save(orig, dst, NULL, 0, NOW, NULL, 0, &saved);
+    CHECK(open_key(dst, pw, keyfile ? kf : NULL, &saved) == KDBX_OK, "open %s", name);
+    if (!orig || !saved) return;
+    kdbx_err e = kdbx_save(&saved, dst, NULL, 0, NOW, NULL, 0);
     CHECK(e == KDBX_OK, "noop save %s: %s", name, kdbx_strerror(e));
     if (!e) {
         CHECK(same_index(orig, saved), "%s: returned db differs", name);
@@ -334,11 +329,8 @@ int main(int argc, char **argv)
     /* f. change master key + rounds */
     kdbx_key nk;
     kdbx_key_init(&nk, "n3w pässword", strlen("n3w pässword"), NULL);
-    kdbx_db *nd2;
-    CHECK((e = kdbx_save(db, path, NULL, 0, NOW, &nk, 2000, &nd2)) == KDBX_OK, "rekey: %s", kdbx_strerror(e));
+    CHECK((e = kdbx_save(&db, path, NULL, 0, NOW, &nk, 2000)) == KDBX_OK, "rekey: %s", kdbx_strerror(e));
     kdbx_key_wipe(&nk);
-    kdbx_close(db);
-    db = nd2;
     kdbx_db *x;
     CHECK(open_key(path, "test", NULL, &x) == KDBX_ERR_KEY, "old password still works");
     CHECK(open_key(path, "n3w pässword", NULL, &x) == KDBX_OK, "new password fails");

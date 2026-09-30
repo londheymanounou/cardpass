@@ -527,8 +527,8 @@ const kdbx_group *kdbx_groups(const kdbx_db *db) { return db->groups; }
 
 const kdbx_field *kdbx_field_get(const kdbx_entry *e, const char *key)
 {
-    for (const kdbx_field *f = e->fields; f; f = f->next)
-        if (!strcmp(f->key, key)) return f;
+    for (size_t i = 0; i < e->nfields; i++)
+        if (!strcmp(e->fields[i].key, key)) return &e->fields[i];
     return NULL;
 }
 

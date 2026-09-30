@@ -77,6 +77,20 @@ checked by independent readers with `python tools/check_saved.py`.
   repeats, keyboard walks, years, brute force. Same Weak/Strong label as KeePassXC on 19 reference
   passwords (numbers from `keepassxc-cli estimate`), incl. password1 / azerty123 / Summer2024!.
 
+## RAM budget (tests/host/mem_probe, ESP32-S3 struct sizes from xtensa gcc)
+| | index | unlock peak | save (on top of index) | attachment view |
+|---|---|---|---|---|
+| 5 entries | ~6.5 KB | ~86 KB | ~121 KB | ~56 KB + view buffer |
+| 1,000 minimal entries | ~232 KB | ~370 KB (host) | ~101 KB | same |
+- ~230 B per minimal entry (struct 80 B + 16 B per field + the text itself); notes and custom
+  fields add their length. With ~300 KB free heap (no framebuffer!) that is ~800 typical entries;
+  measure the real free heap on the device first.
+- Done: standard field names shared, strings unaligned, empty values not stored, fields packed
+  per entry (was 321 KB for 1,000); save verifies the written file without building an index and
+  frees the old index before building the new one (was +528 KB for 1,000).
+- Lesson from ../deck (same hardware): a 65 KB full-frame sprite left it ~1 KB from a boot
+  failure. CardPass UI must draw straight to the panel / small strips, no full framebuffer.
+
 ## Deviations from PLAN.md (deliberate)
 - No `crypto/` wrapper: mbedTLS is called directly (ESP-IDF's routes to hardware).
 - Index stores decoded ciphertext (not base64) and all string fields (entry view needs no re-read).

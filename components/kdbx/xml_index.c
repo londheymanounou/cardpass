@@ -11,21 +11,24 @@
 
 /* ---------------- arena / tbuf ---------------- */
 
-void *arena_alloc(arena *a, size_t n)
+static void *arena_get(arena *a, size_t n, size_t align)
 {
-    n = (n + 7) & ~(size_t)7;
     arena_chunk *c = a->head;
-    if (!c || c->cap - c->used < n) {
+    size_t at = c ? (c->used + align - 1) & ~(align - 1) : 0;
+    if (!c || at > c->cap || c->cap - at < n) {
         size_t cap = n > ARENA_CHUNK ? n : ARENA_CHUNK;
         if (!(c = calloc(1, sizeof *c + cap))) return NULL;
         c->cap = cap;
         c->next = a->head;
         a->head = c;
+        at = 0;
     }
-    void *p = c->data + c->used;
-    c->used += n;
-    return p;
+    c->used = at + n;
+    return c->data + at;
 }
+
+void *arena_alloc(arena *a, size_t n) { return arena_get(a, n, 8); }
+void *arena_bytes(arena *a, size_t n) { return arena_get(a, n, 1); }
 
 void arena_free(arena *a)
 {
@@ -102,14 +105,25 @@ void xml_index_wipe(xml_index *xi)
 {
     tbuf_free(&xi->text);
     tbuf_free(&xi->attr);
+    tbuf_free(&xi->fbuf);
     mbedtls_platform_zeroize(xi, sizeof *xi);
 }
 
 static const char *text_dup(xml_index *xi)
 {
-    char *s = arena_alloc(&xi->db->a, xi->text.len + 1);
-    if (s && xi->text.len) memcpy(s, xi->text.p, xi->text.len);
+    if (!xi->text.len) return "";
+    char *s = arena_bytes(&xi->db->a, xi->text.len + 1);
+    if (s) memcpy(s, xi->text.p, xi->text.len);
     return s;
+}
+
+/* Field names every entry has: shared, not copied per entry. */
+static const char *key_dup(xml_index *xi)
+{
+    static const char *const std[] = {"Title", "UserName", "Password", "URL", "Notes", "otp"};
+    for (size_t i = 0; i < sizeof std / sizeof *std; i++)
+        if (xi->text.len == strlen(std[i]) && !memcmp(xi->text.p, std[i], xi->text.len)) return std[i];
+    return text_dup(xi);
 }
 
 /* Exactly `want` decoded bytes (0 = any length, returns length). -1 on error. */
@@ -145,13 +159,13 @@ static kdbx_err elem_start(xml_index *xi)
         e->group = xi->group;
         e->title = e->username = e->url = e->tags = e->autotype = "";
         xi->entry = e;
-        xi->fields_tail = NULL;
+        tbuf_clear(&xi->fbuf);
     } else if (t == T_BINARY && parent == T_ENTRY && xi->entry) {
         if (!(xi->att = arena_alloc(&db->a, sizeof *xi->att))) return KDBX_ERR_NOMEM;
         xi->att->name = "";
         xi->att->ref = UINT32_MAX;
     } else if (t == T_STRING && parent == T_ENTRY && xi->entry) {
-        if (!(xi->field = arena_alloc(&db->a, sizeof *xi->field))) return KDBX_ERR_NOMEM;
+        xi->field = &xi->cur;
         xi->field->key = "";
         xi->field->value = (const uint8_t *)"";
         xi->field->stream_off = KDBX_PLAIN;
@@ -177,7 +191,7 @@ static kdbx_err elem_end(xml_index *xi)
         int r = mbedtls_base64_decode(NULL, 0, &n, xi->text.p, xi->text.len);
         if (r && r != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) return KDBX_ERR_FORMAT;
         if (!xi->history && t == T_VALUE && parent == T_STRING && f) {
-            uint8_t *c = arena_alloc(&db->a, n + 1);
+            uint8_t *c = arena_bytes(&db->a, n + 1);
             if (!c) return KDBX_ERR_NOMEM;
             if (n && b64(xi, c, n) < 0) return KDBX_ERR_FORMAT;
             f->value = c;
@@ -221,8 +235,7 @@ static kdbx_err elem_end(xml_index *xi)
             if (a->ref != UINT32_MAX) *tail = a;
             xi->att = NULL;
         } else if (t == T_STRING && f) {
-            *(xi->fields_tail ? &xi->fields_tail->next : &e->fields) = f;
-            xi->fields_tail = f;
+            if (!tbuf_put(&xi->fbuf, f, sizeof *f)) err = KDBX_ERR_NOMEM;
             xi->field = NULL;
             if (f->stream_off == KDBX_PLAIN) {
                 const char *v = (const char *)f->value;
@@ -232,13 +245,19 @@ static kdbx_err elem_end(xml_index *xi)
             }
         }
     } else if (t == T_ENTRY && e && parent == T_GROUP) {
+        size_t nf = xi->fbuf.len / sizeof(kdbx_field);
+        if (nf > UINT16_MAX) return KDBX_ERR_FORMAT;
+        if (nf && !(e->fields = arena_alloc(&db->a, xi->fbuf.len))) return KDBX_ERR_NOMEM;
+        if (nf) memcpy(e->fields, xi->fbuf.p, xi->fbuf.len);
+        e->nfields = (uint16_t)nf;
+        tbuf_clear(&xi->fbuf);
         *(db->entries ? &db->entries_tail->next : &db->entries) = e;
         db->entries_tail = e;
         xi->entry = NULL;
     } else if (xi->att && parent == T_BINARY && t == T_KEY) {
         if (!(xi->att->name = text_dup(xi))) err = KDBX_ERR_NOMEM;
     } else if (f && parent == T_STRING && (t == T_KEY || t == T_VALUE)) {
-        const char *s = text_dup(xi);
+        const char *s = t == T_KEY ? key_dup(xi) : text_dup(xi);
         if (!s) err = KDBX_ERR_NOMEM;
         else if (t == T_KEY) f->key = s;
         else { f->value = (const uint8_t *)s; f->len = (uint32_t)xi->text.len; }

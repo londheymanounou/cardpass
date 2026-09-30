@@ -136,7 +136,7 @@ static void check_expected(const char *name, const kdbx_key *key, const kdbx_db 
 
     int n_entries = 0, n_fields = 0;
     for (const kdbx_entry *e = kdbx_entries(db); e; e = e->next, n_entries++)
-        for (const kdbx_field *fl = e->fields; fl; fl = fl->next) n_fields++;
+        n_fields += e->nfields;
     CHECK(n_entries == entries, "%s: %d entries, want %d", name, n_entries, entries);
     CHECK(n_fields == fields, "%s: %d fields, want %d", name, n_fields, fields);
 }

@@ -70,3 +70,7 @@ target_link_libraries(strength PUBLIC gen m)
 add_executable(test_strength test_strength.c)
 target_link_libraries(test_strength strength)
 add_test(NAME strength COMMAND test_strength)
+
+# RAM budget report (not a pass/fail test): run build/mem_probe
+add_executable(mem_probe mem_probe.c)
+target_link_libraries(mem_probe kdbx "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free")

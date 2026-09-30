@@ -43,7 +43,6 @@ typedef struct kdbx_group {
 } kdbx_group;
 
 typedef struct kdbx_field {
-    struct kdbx_field *next;
     const char *key;
     const uint8_t *value;   /* plaintext (NUL-terminated) or ciphertext */
     uint32_t len;
@@ -60,7 +59,8 @@ typedef struct kdbx_attachment {
 typedef struct kdbx_entry {
     struct kdbx_entry *next;
     const kdbx_group *group;
-    kdbx_field *fields;
+    kdbx_field *fields;     /* nfields, in document order */
+    uint16_t nfields;
     const char *title, *username, *url, *tags; /* never NULL ("" if missing or protected) */
     const char *autotype;   /* AutoType/DefaultSequence, "" = inherit from groups */
     bool autotype_off;      /* AutoType/Enabled = False */
@@ -138,11 +138,15 @@ size_t kdbx_delete_group(const kdbx_db *db, const kdbx_group *g, kdbx_edit out[2
 
 /* Safe save: re-reads path, applies edits while streaming into path.tmp (new seeds,
  * IV and inner stream key; unknown XML, history and attachments carried over),
- * re-opens path.tmp to verify, keeps the original as path.bak, renames.
+ * verifies path.tmp (every HMAC, XML well-formed), keeps the original as path.bak,
+ * renames, then replaces *db by the saved database (old index freed first, so
+ * two indexes never coexist in RAM).
  * newkey != NULL: new master key with a new KDF seed and `rounds` (0 = keep); runs the KDF.
- * now: unix seconds for modification times. *newdb: the saved database, re-opened. */
-kdbx_err kdbx_save(const kdbx_db *db, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
-                   const kdbx_key *newkey, uint64_t rounds, kdbx_db **newdb);
+ * now: unix seconds for modification times.
+ * On error *db is untouched, except when the file was saved but re-reading it
+ * failed (e.g. out of memory): then *db is NULL and the user must unlock again. */
+kdbx_err kdbx_save(kdbx_db **db, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
+                   const kdbx_key *newkey, uint64_t rounds);
 
 enum { KDBX_AES256, KDBX_CHACHA20 };
 

@@ -13,6 +13,7 @@ typedef struct arena_chunk {
 typedef struct { arena_chunk *head; } arena;
 
 void *arena_alloc(arena *a, size_t n); /* zeroed, 8-byte aligned */
+void *arena_bytes(arena *a, size_t n); /* zeroed, unaligned (strings) */
 void arena_free(arena *a);
 
 /* ---- growable text buffer (wiped on grow and free) ---- */
@@ -80,7 +81,8 @@ typedef struct {
     int depth, history;         /* history > 0: inside <History> */
     kdbx_group *group;          /* current group */
     kdbx_entry *entry;          /* current (non-history) entry */
-    kdbx_field *field, *fields_tail;
+    kdbx_field *field, cur;     /* field = &cur while inside an entry's <String> */
+    tbuf fbuf;                  /* current entry's fields, copied to the arena at </Entry> */
     bool protected_attr, in_attr;
     kdbx_attachment *att;       /* current Entry/Binary */
     tbuf text, attr;
