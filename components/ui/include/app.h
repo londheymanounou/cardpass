@@ -36,7 +36,9 @@ typedef struct {
     int tz_minutes;            /* display only */
 } app_settings;
 
-enum { SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY };
+enum { SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR };
+#define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
+#define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
 
 #define APP_MAX_DBS 16
 #define APP_RECENT 8
@@ -83,7 +85,13 @@ typedef struct {
     int nrows;
     bool revealed;
     double pw_bits;
+    int totp_period;
     int back_scr;
+
+    /* QR of one field: only the modules are kept, wiped on exit */
+    uint8_t qr[APP_QR_BYTES];
+    uint32_t qr_until;
+    char qr_label[32];
 } app;
 
 void app_init(app *a, const app_platform *p, const app_settings *s);

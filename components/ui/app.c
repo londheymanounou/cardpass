@@ -7,6 +7,8 @@
 #include "search.h"
 #include "strength.h"
 #include "totp.h"
+#include "qrcodegen.h"
+#define QR_SHOW_MS 20000
 #include "ui_icons.h"
 
 #define BAR_H 14
@@ -213,6 +215,7 @@ void app_lock(app *a)
     wipe(a->query, sizeof a->query);
     wipe(a->recent, sizeof a->recent);
     wipe(a->rows, sizeof a->rows);
+    wipe(a->qr, sizeof a->qr);
     a->pwlen = a->qlen = a->nrecent = a->nrows = 0;
     a->entry = NULL;
     a->group = NULL;
@@ -253,6 +256,51 @@ static void unlock(app *a)
     a->scr = SCR_HOME;
     build_group_list(a, kdbx_root_group(a->db), true);
     a->sel = a->top = 0;
+    mark_all(a);
+}
+
+/* ======================= QR ======================= */
+
+static bool totp_now(app *a, const kdbx_field *f, char *out, size_t n); /* below */
+
+/* Plaintext of an entry-view row (for QR). */
+static bool row_text(app *a, const app_row *r, char *buf, size_t n)
+{
+    switch (r->kind) {
+    case R_TOTP: return totp_now(a, r->f, buf, n);
+    case R_NOTES: r = &(app_row){R_FIELD, r->f, NULL, 0, 0}; /* the whole note */ /* fall through */
+    case R_USER: case R_PASS: case R_URL: case R_FIELD: case R_PASSKEY:
+        return kdbx_reveal(a->db, r->f, buf, n) == KDBX_OK && buf[0];
+    default: return false;
+    }
+}
+
+static void show_qr(app *a, const app_row *r)
+{
+    char *buf = malloc(REVEAL_MAX);
+    uint8_t *tmp = malloc(APP_QR_BYTES);
+    bool ok = buf && tmp && row_text(a, r, buf, REVEAL_MAX) &&
+              qrcodegen_encodeText(buf, tmp, a->qr, qrcodegen_Ecc_LOW, 1, APP_QR_MAX_VERSION, qrcodegen_Mask_AUTO, true);
+    if (buf) wipe(buf, REVEAL_MAX), free(buf);
+    if (tmp) wipe(tmp, APP_QR_BYTES), free(tmp);
+    if (!ok) {
+        wipe(a->qr, sizeof a->qr);
+        snprintf(a->msg, sizeof a->msg, "Too long for a QR code");
+        mark_all(a);
+        return;
+    }
+    static const char *const labels[] = {[R_USER] = "User", [R_PASS] = "Password", [R_URL] = "URL", [R_TOTP] = "TOTP",
+                                         [R_NOTES] = "Notes", [R_PASSKEY] = "Passkey"};
+    snprintf(a->qr_label, sizeof a->qr_label, "%s", r->kind == R_FIELD ? r->f->key : labels[r->kind]);
+    a->scr = SCR_QR;
+    a->qr_until = a->now_ms + QR_SHOW_MS;
+    mark_all(a);
+}
+
+static void close_qr(app *a)
+{
+    wipe(a->qr, sizeof a->qr);
+    a->scr = SCR_ENTRY;
     mark_all(a);
 }
 
@@ -373,9 +421,14 @@ void app_key(app *a, uint32_t key, bool down)
         }
         break;
     case SCR_ENTRY:
+        a->msg[0] = 0;
         if (k == K_UP) { a->revealed = false; move_sel(a, a->nrows, -1); }
         else if (k == K_DOWN) { a->revealed = false; move_sel(a, a->nrows, 1); }
         else if (k == K_ESC || k == '`') go_back(a);
+        else if ((k == 'q' || k == 'Q') && a->nrows) show_qr(a, &a->rows[a->sel]);
+        break;
+    case SCR_QR: /* any key clears it */
+        close_qr(a);
         break;
     }
 }
@@ -384,6 +437,7 @@ void app_tick(app *a, uint32_t now_ms)
 {
     uint32_t prev = a->now_ms;
     a->now_ms = now_ms;
+    if (a->scr == SCR_QR && (int32_t)(now_ms - a->qr_until) >= 0) close_qr(a);
     if (a->db && a->set.autolock_ms && now_ms - a->last_input_ms > a->set.autolock_ms) {
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, "Locked after inactivity");
@@ -490,6 +544,35 @@ static void draw_list(app *a, ui_strip *s)
     draw_scrollbar(a, s, a->nhits);
 }
 
+/* Current code of a TOTP row into out (digits only). */
+static bool totp_now(app *a, const kdbx_field *f, char *out, size_t n)
+{
+    bool valid, ok;
+    int64_t now = a->p->now(a->p->ctx, &valid);
+    totp t;
+    char *buf = malloc(REVEAL_MAX);
+    if (!buf || !valid || n < 11) { free(buf); return false; }
+    ok = kdbx_reveal(a->db, f, buf, REVEAL_MAX) == KDBX_OK;
+    if (ok && !strcmp(f->key, "otp")) ok = totp_from_uri(&t, buf);
+    else if (ok) {
+        totp_init(&t);
+        ok = totp_set_keepass(&t, f->key, buf);
+        for (size_t k = 0; ok && k < a->entry->nfields; k++) {
+            const kdbx_field *x = &a->entry->fields[k];
+            if (!strncmp(x->key, "TimeOtp-", 8) && strncmp(x->key, "TimeOtp-Secret", 14) &&
+                kdbx_reveal(a->db, x, buf, REVEAL_MAX) == KDBX_OK)
+                totp_set_keepass(&t, x->key, buf);
+        }
+    }
+    wipe(buf, REVEAL_MAX);
+    free(buf);
+    if (!ok || !totp_valid(&t)) { totp_wipe(&t); return false; }
+    totp_code(&t, (uint64_t)now, out);
+    a->totp_period = t.period;
+    totp_wipe(&t);
+    return true;
+}
+
 static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
 {
     const app_row *r = &a->rows[i];
@@ -526,34 +609,17 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
         label = "TOTP";
         bool valid;
         int64_t now = a->p->now(a->p->ctx, &valid);
-        totp t;
-        bool ok = kdbx_reveal(a->db, r->f, buf, REVEAL_MAX) == KDBX_OK;
-        if (ok && !strcmp(r->f->key, "otp")) ok = totp_from_uri(&t, buf);
-        else if (ok) {
-            totp_init(&t);
-            ok = totp_set_keepass(&t, r->f->key, buf);
-            for (size_t k = 0; ok && k < a->entry->nfields; k++) {
-                const kdbx_field *x = &a->entry->fields[k];
-                if (!strncmp(x->key, "TimeOtp-", 8) && strncmp(x->key, "TimeOtp-Secret", 14) &&
-                    kdbx_reveal(a->db, x, buf, REVEAL_MAX) == KDBX_OK)
-                    totp_set_keepass(&t, x->key, buf);
-            }
-        }
-        wipe(buf, REVEAL_MAX);
-        if (!ok) { val = "invalid TOTP settings"; vc = T->danger; break; }
-        if (!valid) { val = "time not set"; vc = T->warn; totp_wipe(&t); break; }
-        char code[16];
-        totp_code(&t, (uint64_t)now, code);
-        int rem = totp_remaining(&t, (uint64_t)now), per = t.period;
-        totp_wipe(&t);
-        size_t cl = strlen(code);
+        int per = 30, rem = 0;
+        if (!valid) { val = "time not set"; vc = T->warn; break; }
+        if (!totp_now(a, r->f, buf, REVEAL_MAX)) { val = "invalid TOTP settings"; vc = T->danger; break; }
+        size_t cl = strlen(buf);
         if (cl == 6 || cl == 8) { /* 123 456 */
-            memmove(code + cl / 2 + 1, code + cl / 2, cl / 2 + 1);
-            code[cl / 2] = ' ';
+            memmove(buf + cl / 2 + 1, buf + cl / 2, cl / 2 + 1);
+            buf[cl / 2] = ' ';
         }
-        snprintf(buf, REVEAL_MAX, "%s", code);
-        wipe(code, sizeof code);
         val = buf;
+        per = a->totp_period ? a->totp_period : 30;
+        rem = per - (int)(now % per);
         snprintf(right, sizeof right, "%ds", rem);
         rc = rem <= 5 ? T->danger : T->dim;
         int bw = 40, bx = UI_W - PAD - bw;
@@ -605,6 +671,23 @@ void app_draw(app *a, ui_strip *s)
     case SCR_GROUP: snprintf(title, sizeof title, "%s %s", ICON_FOLDER_OPEN, a->group->name); break;
     case SCR_SEARCH: snprintf(title, sizeof title, "%s", a->dbname); break;
     case SCR_ENTRY: snprintf(title, sizeof title, "%s %s", ICON_KEY, a->entry->title); break;
+    default: title[0] = 0;
+    }
+    if (a->scr == SCR_QR) { /* always black on white, whole panel, so phones can scan it */
+        const uint16_t white = 0xFFFF, black = 0;
+        int n = qrcodegen_getSize(a->qr), scale = UI_H / (n + 4), oy = (UI_H - n * scale) / 2, ox = oy; /* >= 2-module quiet zone */
+        ui_fill(s, 0, 0, UI_W, UI_H, white);
+        for (int yy = 0; yy < n; yy++) {
+            int py = oy + yy * scale;
+            if (py + scale <= s->y0 || py >= s->y0 + s->h) continue;
+            for (int xx = 0; xx < n; xx++)
+                if (qrcodegen_getModule(a->qr, xx, yy)) ui_fill(s, ox + xx * scale, py, scale, scale, black);
+        }
+        int tx = ox + n * scale + 8;
+        ui_text(s, &ui_font_small, tx, 20, a->qr_label, black, UI_W - tx - 2);
+        ui_text(s, &ui_font_small, tx, UI_H - 28, "any key", RGB565(90, 90, 90), UI_W - tx - 2);
+        ui_text(s, &ui_font_small, tx, UI_H - 15, "to close", RGB565(90, 90, 90), UI_W - tx - 2);
+        return;
     }
     if (s->y0 < BAR_H) draw_bar(a, s, title);
 
@@ -655,7 +738,8 @@ void app_draw(app *a, ui_strip *s)
         ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
         for (int i = a->top; i < a->nrows && i < a->top + visible_rows(a); i++) draw_entry_row(a, s, i, buf);
         draw_scrollbar(a, s, a->nrows);
-        hint = a->set.reveal_hold ? "hold R reveal   ` back" : "R reveal   ` back";
+        if (a->msg[0]) ui_text(s, &ui_font_small, UI_W / 2, UI_H - FOOT_H - 13, a->msg, T->warn, UI_W / 2 - PAD);
+        hint = a->set.reveal_hold ? "hold R reveal  Q qr  ` back" : "R reveal  Q qr  ` back";
         break;
     }
     wipe(buf, REVEAL_MAX);

@@ -39,6 +39,38 @@ checked by independent readers with `python tools/check_saved.py`.
 - Tested: RFC 6238 vectors, all encodings, matches `keepassxc-cli show -t` live.
 - TODO on device: manual time set, NTP, Grove RTC, validity tracking.
 
+## Stage 1 UI core (host): DONE, device glue TODO
+- `components/ui`: strip renderer (screens draw into a 240x16 band pushed to the panel; no
+  65 KB framebuffer), Cozette 6x13 (MIT) + Spleen 8x16 (BSD) with Latin-1 + Extended-A +
+  icons (tools/gen_font.py; licenses in components/ui/FONT_LICENSES.txt), dark/light palettes.
+- Screens (`app.c`): database picker, unlock (masked, errors), home (favorites, recent, groups),
+  groups, live search, entry view (reveal R, strength label, TOTP code + countdown, notes wrapped,
+  custom/protected fields, passkey, attachments, tags, expiry), QR (Q: black on white, any key or
+  20 s clears, modules wiped), auto-lock + fn+L lock. Lists are built lazily (no RAM per row).
+- `tests/host/render.c`: scripted key presses through the real app; after each step only dirty
+  strips are redrawn (like the device) and compared with a full redraw; PNGs in
+  `tests/host/build/renders/`. `tools/check_qr.py` decodes the QR screens with OpenCV.
+- TODO: settings / generator / edit / audit / expiry screens, key-file picker, KDF progress UI,
+  the device loop (TCA8418 keys, display push, sleep).
+
+## Stage 7 — Passkeys: core DONE, USB TODO
+- `components/fido`: CBOR, CTAP2 getInfo + getAssertion over KeePassXC `KPEX_PASSKEY_*` entries
+  (field names/format checked against KeePassXC's BrowserService.cpp/BrowserPasskeys.cpp:
+  authData = SHA-256(rpId) | UP UV [BE BS] | counter 0; DER signature over authData||clientDataHash).
+  ES256 + RS256; Ed25519 -> CTAP2_ERR_UNSUPPORTED_ALGORITHM (not in mbedTLS 3.6). Discoverable and
+  allow-list requests; the user picks the account on the device; makeCredential/reset refused.
+  CTAPHID framing (INIT/PING/WINK/CBOR, errors, reassembly).
+- Tested (`test_fido`, `tools/check_passkeys.py`): assertions verified with pycryptodomex against
+  the public keys; flags, counter, credential id, user handle checked; error paths.
+- Open questions for real browsers: `up=false` requests are still confirmed by the user;
+  `uv=true` declared because unlocking = master password. KEEPALIVE while waiting for the key press
+  belongs to the device loop.
+
+## Fuzzing
+- `tests/host/fuzz.c` (in asan.sh): outer header, whole files with the right key (payload parsed
+  before its HMAC), decrypted payloads (gzip → inner header → index), key files, otpauth /
+  TimeOtp, auto-type, search, strength, CTAP2 requests, CTAPHID reports. No memory errors found.
+
 ## Stage 1 pieces done on host
 - `components/search`: accent/case-insensitive scored subsequence search over title/user/URL/tags,
   multi-term, favorites + recent boost, empty query = home order. 0.4 ms / query / 1,000 entries
@@ -109,6 +141,14 @@ checked by independent readers with `python tools/check_saved.py`.
   modifier groups `+(abc)` in auto-type unsupported (reported, never typed).
 - Moving a large group holds its subtree in RAM during save.
 - Host Windows gcc has no ASan: sanitizer runs use WSL.
+
+## Framework decision (open)
+- `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its
+  lessons are in this repo's notes (TCA8418 INT pin 11, drain the FIFO, wedge watchdog; RAM ceiling).
+  Its code is PolyForm-Noncommercial: ideas only, nothing copied.
+- CardPass's crypto uses mbedTLS 3.6 APIs = ESP-IDF 5.x. Arduino 2.x ships mbedTLS 2.28.
+  Options: PlatformIO `framework = espidf` (IDF 5) + M5GFX as an IDF component + own TCA8418
+  driver (recommended), or pioarduino (Arduino 3 on IDF 5) + M5Cardputer.
 
 ## Next step
 Stage 1 on the device when it arrives: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,

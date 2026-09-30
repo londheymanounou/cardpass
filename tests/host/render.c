@@ -119,6 +119,23 @@ int main(int argc, char **argv)
     snap(&a, "10_entry_totp_later");
     keys(&a, K_DOWN, 8);
     snap(&a, "11_entry_scrolled");
+    /* QR codes: tools/check_qr.py decodes these PNGs with OpenCV */
+    keys(&a, K_UP, 8);
+    keys(&a, K_UP, 2); /* Password (TOTP was row 3) */
+    key(&a, 'q');
+    snap(&a, "qr_password");
+    key(&a, ' ');
+    snap(&a, "qr_closed");
+    key(&a, K_DOWN);
+    key(&a, 'q');
+    snap(&a, "qr_url");
+    app_tick(&a, 25000 + 21000); /* times out */
+    snap(&a, "qr_timed_out");
+    key(&a, K_DOWN);
+    key(&a, 'q');
+    snap(&a, "qr_totp");
+    key(&a, ' ');
+    keys(&a, K_UP, 2);
     key(&a, '`');
     type(&a, "caf");
     snap(&a, "12_search_caf");
