@@ -72,7 +72,9 @@ check(p and p.password == "pr0ton" and p.group.name == "Email" and "favorite" in
 
 bank = kp.find_entries(title="Bank", first=True)
 check(bank.group.name == "Travail & Co", "bank moved")
-check(len(bank.attachments) == 1 and len(bank.attachments[0].data) == 4096, "bank attachment kept")
+att = {a.filename: a.data for a in bank.attachments}
+check(len(att.get("scan.bin", b"")) == 4096 and att.get("notes.txt", b"").startswith("Line 1 é".encode()),
+      "bank attachments kept")
 check(kp.find_groups(name="Cards", first=True).parentgroup.name == "Email", "cards moved")
 check(kp.find_entries(title="Visa", first=True) is None, "visa deleted")
 check(kp.recyclebin_group is not None and kp.recyclebin_group.name == "Recycle Bin", "recycle bin")

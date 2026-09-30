@@ -50,6 +50,13 @@ typedef struct kdbx_field {
     uint32_t stream_off;    /* KDBX_PLAIN, or offset in the inner keystream */
 } kdbx_field;
 
+typedef struct kdbx_attachment {
+    struct kdbx_attachment *next;
+    const char *name;
+    uint32_t ref;           /* index of the file in the inner header */
+    uint32_t size;          /* bytes */
+} kdbx_attachment;
+
 typedef struct kdbx_entry {
     struct kdbx_entry *next;
     const kdbx_group *group;
@@ -57,6 +64,7 @@ typedef struct kdbx_entry {
     const char *title, *username, *url, *tags; /* never NULL ("" if missing or protected) */
     const char *autotype;   /* AutoType/DefaultSequence, "" = inherit from groups */
     bool autotype_off;      /* AutoType/Enabled = False */
+    kdbx_attachment *attachments;
     int64_t expiry;         /* unix seconds, valid if expires */
     bool expires;
     uint8_t uuid[16];
@@ -76,6 +84,15 @@ const char *kdbx_autotype(const kdbx_entry *e, const char *fallback);
 /* Copy a field's plaintext into out (NUL-terminated), decrypting if protected.
  * Caller wipes out (mbedtls_platform_zeroize) right after use. */
 kdbx_err kdbx_reveal(const kdbx_db *db, const kdbx_field *f, char *out, size_t outsz);
+
+/* Read the first max bytes of an attachment from the database file at path
+ * (re-read and fully verified, no KDF). *got = bytes copied; a->size is the full size.
+ * Caller wipes buf. */
+kdbx_err kdbx_attachment_read(const kdbx_db *db, const char *path, const kdbx_attachment *a, uint8_t *buf,
+                              size_t max, size_t *got);
+/* Viewable as text: valid UTF-8, no control characters except tab/newline.
+ * truncated: an incomplete last character is allowed (buffer cut mid-character). */
+bool kdbx_is_text(const uint8_t *d, size_t n, bool truncated);
 
 /* ---------------- editing ---------------- */
 

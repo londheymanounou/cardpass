@@ -68,6 +68,8 @@ struct kdbx_db {
     uint8_t transformed[32];                  /* cached for saving without re-running the KDF */
     bool recycle_enabled;
     uint8_t recycle_uuid[16];
+    uint32_t bin_size[64];                    /* ponytail: sizes of the first 64 attachments */
+    uint32_t nbins, bin_left;
 };
 
 typedef struct {
@@ -80,6 +82,7 @@ typedef struct {
     kdbx_entry *entry;          /* current (non-history) entry */
     kdbx_field *field, *fields_tail;
     bool protected_attr, in_attr;
+    kdbx_attachment *att;       /* current Entry/Binary */
     tbuf text, attr;
     uint32_t stream_pos;        /* bytes of inner keystream consumed so far */
     bool done;

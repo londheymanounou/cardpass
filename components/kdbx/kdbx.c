@@ -403,12 +403,92 @@ done:
 
 static kdbx_err index_xml(void *ctx, const uint8_t *d, size_t n) { return xml_index_feed(ctx, d, n); }
 
+/* Attachment sizes only (content skipped). The first call per field is its 5-byte header. */
+static kdbx_err index_bin(void *ctx, const uint8_t *d, size_t n)
+{
+    kdbx_db *db = ((xml_index *)ctx)->db;
+    if (db->bin_left) {
+        db->bin_left -= (uint32_t)n;
+        return KDBX_OK;
+    }
+    db->bin_left = le32(d + 1);
+    if (db->nbins < 64) db->bin_size[db->nbins] = db->bin_left ? db->bin_left - 1 : 0; /* minus flags byte */
+    db->nbins++;
+    return KDBX_OK;
+}
+
+typedef struct {
+    uint32_t want, idx, left;
+    bool in_field, flags_done;
+    uint8_t *buf;
+    size_t max, got, total;
+} att_reader;
+
+static kdbx_err att_bin(void *ctx, const uint8_t *d, size_t n)
+{
+    att_reader *r = ctx;
+    if (!r->left) { /* field header */
+        r->left = le32(d + 1);
+        r->in_field = r->idx++ == r->want;
+        r->flags_done = false;
+        return KDBX_OK;
+    }
+    r->left -= (uint32_t)n;
+    if (!r->in_field) return KDBX_OK;
+    if (!r->flags_done) { d++; n--; r->flags_done = true; }
+    size_t take = r->max - r->got < n ? r->max - r->got : n;
+    memcpy(r->buf + r->got, d, take);
+    r->got += take;
+    r->total += n;
+    return KDBX_OK;
+}
+
+static kdbx_err ignore_xml(void *ctx, const uint8_t *d, size_t n) { (void)ctx; (void)d; (void)n; return KDBX_OK; }
+
+kdbx_err kdbx_attachment_read(const kdbx_db *db, const char *path, const kdbx_attachment *a, uint8_t *buf,
+                              size_t max, size_t *got)
+{
+    att_reader r = {.want = a->ref, .buf = buf, .max = max};
+    kdbx_sink s = {ignore_xml, att_bin, &r, {0}, {0}};
+    kdbx_header *h = malloc(sizeof *h);
+    uint8_t tk[32];
+    FILE *f = fopen(path, "rb");
+    kdbx_err err = !h ? KDBX_ERR_NOMEM : !f ? KDBX_ERR_IO : KDBX_OK;
+    *got = 0;
+    if (!err) {
+        memcpy(tk, db->transformed, 32);
+        err = kdbx_read_file(f, NULL, tk, h, &s); /* whole file: every block HMAC is checked */
+        mbedtls_platform_zeroize(tk, sizeof tk);
+    }
+    if (!err && r.idx <= a->ref) err = KDBX_ERR_CORRUPT;
+    if (err) mbedtls_platform_zeroize(buf, max);
+    else *got = r.got;
+    mbedtls_platform_zeroize(&s, sizeof s);
+    if (f) fclose(f);
+    free(h);
+    return err;
+}
+
+bool kdbx_is_text(const uint8_t *d, size_t n, bool truncated)
+{
+    for (size_t i = 0; i < n;) {
+        uint8_t c = d[i];
+        int len = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 0;
+        if (!len || (len == 1 && c < 0x20 && c != '\t' && c != '\n' && c != '\r') || c == 0x7F) return false;
+        if (i + (size_t)len > n) return truncated;
+        for (int k = 1; k < len; k++)
+            if ((d[i + k] & 0xC0) != 0x80) return false;
+        i += (size_t)len;
+    }
+    return true;
+}
+
 kdbx_err kdbx_open_tk(FILE *f, const uint8_t *composite, const uint8_t tk_in[32], kdbx_db **out)
 {
     kdbx_header *h = malloc(sizeof *h);
     kdbx_db *db = calloc(1, sizeof *db);
     xml_index *xi = malloc(sizeof *xi);
-    kdbx_sink s = {index_xml, NULL, xi, {0}, {0}};
+    kdbx_sink s = {index_xml, index_bin, xi, {0}, {0}};
     kdbx_err err = KDBX_ERR_NOMEM;
 
     *out = NULL;

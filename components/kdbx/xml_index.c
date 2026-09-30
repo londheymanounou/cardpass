@@ -73,7 +73,7 @@ void tbuf_free(tbuf *t)
 /* ---------------- XML ---------------- */
 
 enum { T_OTHER, T_GROUP, T_ENTRY, T_HISTORY, T_STRING, T_KEY, T_VALUE, T_UUID, T_NAME, T_TAGS,
-       T_TIMES, T_EXPIRY, T_EXPIRES, T_ROOT, T_META, T_RB_ENABLED, T_RB_UUID, T_AUTOTYPE, T_DEFSEQ, T_ENABLED, T_GDEFSEQ };
+       T_TIMES, T_EXPIRY, T_EXPIRES, T_ROOT, T_META, T_RB_ENABLED, T_RB_UUID, T_AUTOTYPE, T_DEFSEQ, T_ENABLED, T_GDEFSEQ, T_BINARY };
 
 static const char *const tag_names[] = {
     [T_GROUP] = "Group", [T_ENTRY] = "Entry", [T_HISTORY] = "History", [T_STRING] = "String",
@@ -81,7 +81,7 @@ static const char *const tag_names[] = {
     [T_TIMES] = "Times", [T_EXPIRY] = "ExpiryTime", [T_EXPIRES] = "Expires", [T_ROOT] = "Root",
     [T_META] = "Meta", [T_RB_ENABLED] = "RecycleBinEnabled", [T_RB_UUID] = "RecycleBinUUID",
     [T_AUTOTYPE] = "AutoType", [T_DEFSEQ] = "DefaultSequence", [T_ENABLED] = "Enabled",
-    [T_GDEFSEQ] = "DefaultAutoTypeSequence",
+    [T_GDEFSEQ] = "DefaultAutoTypeSequence", [T_BINARY] = "Binary",
 };
 
 static int tag_id(const char *name)
@@ -146,6 +146,10 @@ static kdbx_err elem_start(xml_index *xi)
         e->title = e->username = e->url = e->tags = e->autotype = "";
         xi->entry = e;
         xi->fields_tail = NULL;
+    } else if (t == T_BINARY && parent == T_ENTRY && xi->entry) {
+        if (!(xi->att = arena_alloc(&db->a, sizeof *xi->att))) return KDBX_ERR_NOMEM;
+        xi->att->name = "";
+        xi->att->ref = UINT32_MAX;
     } else if (t == T_STRING && parent == T_ENTRY && xi->entry) {
         if (!(xi->field = arena_alloc(&db->a, sizeof *xi->field))) return KDBX_ERR_NOMEM;
         xi->field->key = "";
@@ -210,6 +214,12 @@ static kdbx_err elem_end(xml_index *xi)
             if (b64(xi, e->uuid, 16) < 0) err = KDBX_ERR_FORMAT;
         } else if (t == T_TAGS) {
             if (!(e->tags = text_dup(xi))) err = KDBX_ERR_NOMEM;
+        } else if (t == T_BINARY && xi->att) {
+            kdbx_attachment *a = xi->att, **tail = &e->attachments;
+            while (*tail) tail = &(*tail)->next;
+            if (a->ref < db->nbins && a->ref < 64) a->size = db->bin_size[a->ref];
+            if (a->ref != UINT32_MAX) *tail = a;
+            xi->att = NULL;
         } else if (t == T_STRING && f) {
             *(xi->fields_tail ? &xi->fields_tail->next : &e->fields) = f;
             xi->fields_tail = f;
@@ -225,6 +235,8 @@ static kdbx_err elem_end(xml_index *xi)
         *(db->entries ? &db->entries_tail->next : &db->entries) = e;
         db->entries_tail = e;
         xi->entry = NULL;
+    } else if (xi->att && parent == T_BINARY && t == T_KEY) {
+        if (!(xi->att->name = text_dup(xi))) err = KDBX_ERR_NOMEM;
     } else if (f && parent == T_STRING && (t == T_KEY || t == T_VALUE)) {
         const char *s = text_dup(xi);
         if (!s) err = KDBX_ERR_NOMEM;
@@ -268,6 +280,12 @@ kdbx_err xml_index_feed(xml_index *xi, const uint8_t *d, size_t n)
         case YXML_ATTREND:
             if (!strcmp(xi->x.attr, "Protected") && xi->attr.len == 4 && !memcmp(xi->attr.p, "True", 4))
                 xi->protected_attr = true;
+            if (xi->att && !xi->history && !strcmp(xi->x.attr, "Ref") && xi->tags[xi->depth] == T_VALUE &&
+                xi->tags[xi->depth - 1] == T_BINARY && xi->attr.len && xi->attr.len < 10) {
+                char b[12] = {0};
+                memcpy(b, xi->attr.p, xi->attr.len);
+                xi->att->ref = (uint32_t)strtoul(b, NULL, 10);
+            }
             break;
         case YXML_PISTART: case YXML_PICONTENT: case YXML_PIEND: break;
         default: err = KDBX_ERR_FORMAT;

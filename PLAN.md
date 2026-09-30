@@ -23,7 +23,7 @@ A fast, offline password manager with strict software-level secret handling, run
 | Hardening | Software-only. NO eFuse burning (no Secure Boot, no flash encryption, no JTAG fuse) |
 | Distribution | Must flash and run from M5Burner and SD-card launchers (e.g. M5Launcher), like any normal Cardputer firmware |
 | Password reveal | Setting: "hold key to reveal" OR "press key to toggle reveal" (user's choice) |
-| Attachments & custom icons | Never displayed or decoded (saves RAM/time). Every entry shows one built-in key icon. Attachments and custom icons are still preserved untouched on save |
+| Attachments & custom icons | Attachments are listed (name, size) and can be opened read-only as text (UTF-8 only, first 64 KB; binary files show "can't display"). Never decoded as images/PDF, never written anywhere. Custom icons never displayed; every entry shows one built-in key icon. Both preserved untouched on save |
 | Favorites | Stored as a `favorite` tag in the database itself (syncs with KeePassXC, nothing stored on the device) |
 | Recent entries | RAM only, per session; cleared on lock (no usage history written anywhere) |
 | Not included (by choice) | Wrong-password delay, rotating backups (a single `.bak` from safe-save remains), attachment viewing, database merging, self-destruct |

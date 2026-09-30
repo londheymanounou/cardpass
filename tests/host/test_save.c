@@ -172,6 +172,45 @@ int main(int argc, char **argv)
     MKDIR(wdir);
     char path[512], src[512], tmp[600];
 
+    /* ---- 0. attachments: listed, readable as text, binary detected ---- */
+    {
+        static const char line[] = "Line 1 é à\nLine 2\tend\n";
+        static uint8_t buf[1 << 16];
+        char want[2048] = "";
+        for (int i = 0; i < 40; i++) strcat(want, line);
+        size_t got;
+        path_in(path, tdir, "aes_kpxc.kdbx");
+        kdbx_db *adb;
+        CHECK(open_key(path, "test", NULL, &adb) == KDBX_OK, "open for attachments");
+        const kdbx_entry *b = adb ? by_title(adb, "Bank") : NULL;
+        const kdbx_attachment *bin = NULL, *txt = NULL;
+        int count = 0;
+        for (const kdbx_attachment *a = b ? b->attachments : NULL; a; a = a->next, count++) {
+            if (!strcmp(a->name, "scan.bin")) bin = a;
+            if (!strcmp(a->name, "notes.txt")) txt = a;
+        }
+        CHECK(bin && txt && count == 2, "names");
+        CHECK(bin && txt && bin->size == 4096 && txt->size == strlen(want), "sizes");
+        if (txt) {
+            CHECK(kdbx_attachment_read(adb, path, txt, buf, sizeof buf, &got) == KDBX_OK && got == strlen(want) &&
+                  !memcmp(buf, want, got) && kdbx_is_text(buf, got, false), "text attachment");
+            CHECK(kdbx_attachment_read(adb, path, txt, buf, 8, &got) == KDBX_OK && got == 8 &&
+                  kdbx_is_text(buf, got, true) && !kdbx_is_text(buf, got, false), "truncated mid-é");
+            CHECK(kdbx_attachment_read(adb, path, bin, buf, sizeof buf, &got) == KDBX_OK && got == 4096 &&
+                  !kdbx_is_text(buf, got, false), "binary attachment");
+            path_in(src, tdir, "aes.kdbx"); /* different file: header HMAC with cached key fails */
+            CHECK(kdbx_attachment_read(adb, src, txt, buf, sizeof buf, &got) == KDBX_ERR_KEY && !got, "wrong file");
+        }
+        kdbx_close(adb);
+        path_in(path, tdir, "multiblock.kdbx");
+        CHECK(open_key(path, "test", NULL, &adb) == KDBX_OK, "open multiblock");
+        const kdbx_attachment *big = adb ? kdbx_entries(adb)->attachments : NULL;
+        CHECK(big && big->size == 1500000 && kdbx_attachment_read(adb, path, big, buf, sizeof buf, &got) == KDBX_OK &&
+              got == sizeof buf, "multiblock attachment");
+        kdbx_close(adb);
+        mbedtls_platform_zeroize(buf, sizeof buf);
+    }
+
     /* ---- 1. no-op saves keep everything ---- */
     noop("aes.kdbx", "test", NULL);
     noop("chacha.kdbx", "test", NULL);
@@ -257,6 +296,15 @@ int main(int argc, char **argv)
     CHECK(by_name(db, "Cards") && by_name(db, "Cards")->parent == by_name(db, "Email"), "group moved");
     CHECK(by_title(db, "Bank") && by_title(db, "Bank")->group == by_name(db, "Travail & Co"), "entry moved");
     CHECK(field_is(db, by_title(db, "Bank"), "Password", "B4nk!pw", 1), "moved entry keeps protected value");
+    {
+        const kdbx_entry *b = by_title(db, "Bank");
+        const kdbx_attachment *t = b ? b->attachments : NULL;
+        while (t && strcmp(t->name, "notes.txt")) t = t->next;
+        uint8_t buf[16];
+        size_t got;
+        CHECK(t && !strcmp(t->name, "notes.txt") && kdbx_attachment_read(db, path, t, buf, 6, &got) == KDBX_OK &&
+              got == 6 && !memcmp(buf, "Line 1", 6), "attachment readable after edits");
+    }
 
     kdbx_edit bad = {.op = KDBX_EDIT_GROUP_MOVE};           /* into its own child: refused */
     memcpy(bad.uuid, by_name(db, "Email")->uuid, 16);

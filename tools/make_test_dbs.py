@@ -66,6 +66,8 @@ def fill_rich(kp):
     b = kp.add_entry(bank, "Bank", "bob", "B4nk!pw", notes="x" * 5000)
     att = kp.add_binary(os.urandom(4096), protected=False)
     b.add_attachment(att, "scan.bin")
+    txt = kp.add_binary(("Line 1 é à\nLine 2\tend\n" * 40).encode(), protected=False)
+    b.add_attachment(txt, "notes.txt")
     kp.add_entry(root, "Root entry", "root", "rootpw")
 
 

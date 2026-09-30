@@ -16,6 +16,14 @@ checked by independent readers with `python tools/check_saved.py`.
   file formats, 1,000 entries, multi-block), intermediates vs `tools/ref_dump.py`, Argon2 / KDBX 3.1
   rejected cleanly, tamper detection.
 
+## Attachments (text view)
+- Index lists each entry's attachments (name, size; content skipped at unlock).
+  `kdbx_attachment_read()` re-reads the file with the cached key (every block HMAC checked,
+  no KDF) and copies the first N bytes; `kdbx_is_text()` decides text vs binary.
+- Tested: text/binary detection, truncation mid-character, 1.5 MB multi-block attachment,
+  wrong file rejected, still readable after edits/moves. PLAN.md decision updated.
+- TODO on device: viewer screen (scroll, wipe buffer on leave/lock), pick the size cap.
+
 ## Stage 2 — Output methods: logic DONE, hardware TODO
 - `components/typing`: layouts US, UK, FR AZERTY, DE QWERTZ (strings per key level, dead keys,
   compose table); auto-type parser/executor (`{USERNAME}`… `{S:Name}`, `{TOTP}`, special keys with
