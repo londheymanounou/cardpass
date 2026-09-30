@@ -488,7 +488,7 @@ void app_key(app *a, uint32_t key, bool down)
 
     if (a->scr == SCR_ENTRY && (k == 'r' || k == 'R') && !fn) {
         bool r = !a->cfg.reveal_toggle ? down : (down ? !a->revealed : a->revealed);
-        if (r != a->revealed) a->revealed = r, ap_mark_row(a, a->sel);
+        if (r != a->revealed) a->revealed = r, ap_mark_all(a);
         return;
     }
     if (a->scr == SCR_SPLASH) { if (down) ap_splash_leave(a); return; }   /* any key skips the splash */
@@ -549,8 +549,8 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_ENTRY:
         a->msg[0] = 0;
         ap_mark(a, UI_H - FOOT_H - 14, UI_H);
-        if (k == K_UP) { a->revealed = false; ap_move_sel(a, a->nrows, -1); }
-        else if (k == K_DOWN) { a->revealed = false; ap_move_sel(a, a->nrows, 1); }
+        if (k == K_UP) { a->revealed = false; ap_move_sel(a, a->nrows, -1); ap_mark_all(a); }
+        else if (k == K_DOWN) { a->revealed = false; ap_move_sel(a, a->nrows, 1); ap_mark_all(a); }
         else if (k == K_ESC || k == '`') go_back(a);
         else if ((k == 'q' || k == 'Q') && a->nrows) show_qr(a, &a->rows[a->sel]);
         else ap_entry_key(a, k, fn);
@@ -854,6 +854,7 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
         break;
     }
     }
+    if (masked && reveal) right[0] = 0;                 /* the whole row width is for the secret */
     ui_text(s, &ui_font_small, PAD + 2, sy, label, T->dim, LABEL_W - 4);
     int rw = right[0] ? ui_text_width(&ui_font_small, right) : 0;
     if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, sy - (r->kind == R_TOTP ? 1 : 0), right, rc, rw);
@@ -861,12 +862,65 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
     if (masked && !reveal) {
         ui_text(s, F, vx, ty, U_BULLETS, vc, maxw);
     } else if (masked) {
-        if (kdbx_reveal(a->db, r->f, buf, REVEAL_MAX) == KDBX_OK) ui_text(s, F, vx, ty, buf, T->accent, maxw);
+        if (kdbx_reveal(a->db, r->f, buf, REVEAL_MAX) == KDBX_OK) {
+            const ui_font *rf = ui_text_width(F, buf) <= maxw ? F : &ui_font_small;
+            ui_text(s, rf, vx, y + (h - rf->height) / 2, buf, T->accent, maxw);
+        }
         else ui_text(s, F, vx, ty, "(too long to show)", T->dim, maxw);
         ap_wipe(buf, REVEAL_MAX);
     } else {
         ui_text(s, F, vx, ty, val, vc, maxw);
     }
+}
+
+/* A revealed secret too wide for one row even in the small font gets the whole content area, wrapped. */
+static bool reveal_masked(const app_row *r)
+{
+    if (!r->f) return false;
+    return (r->kind == R_PASS && r->f->len) || ((r->kind == R_USER || r->kind == R_FIELD) && r->f->stream_off != KDBX_PLAIN);
+}
+
+static bool reveal_needs_panel(app *a, char *buf)
+{
+    if (!a->revealed || !a->nrows || !reveal_masked(&a->rows[a->sel])) return false;
+    bool need = kdbx_reveal(a->db, a->rows[a->sel].f, buf, REVEAL_MAX) == KDBX_OK &&
+                ui_text_width(&ui_font_small, buf) > UI_W - PAD - (PAD + LABEL_W);
+    ap_wipe(buf, REVEAL_MAX);
+    return need;
+}
+
+static void draw_reveal_panel(app *a, ui_strip *s, char *buf)
+{
+    const app_row *r = &a->rows[a->sel];
+    ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
+    ui_text(s, &ui_font_small, PAD + 2, CONTENT_Y + 2, r->kind == R_PASS ? "Pass" : r->kind == R_USER ? "User" : r->f->key, T->dim, UI_W - 2 * PAD);
+    if (kdbx_reveal(a->db, r->f, buf, REVEAL_MAX) == KDBX_OK) {
+        const int w = UI_W - 2 * PAD, top = CONTENT_Y + 14;
+        const ui_font *f = F;
+        size_t total = strlen(buf), off = 0;
+        int n = 0, room = (UI_H - FOOT_H - top) / (f->height + 1);
+        while (off < total && n <= room) {
+            size_t k = ui_wrap(f, buf + off, w);
+            off += k ? k : 1;
+            n++;
+        }
+        if (n > room) f = &ui_font_small;                 /* long: smaller font, more lines */
+        char line[256];
+        int y = top;
+        for (off = 0; off < total && y + f->height <= UI_H - FOOT_H; y += f->height + 1) {
+            size_t k = ui_wrap(f, buf + off, w);
+            if (!k) k = 1;
+            if (k > sizeof line - 1) k = sizeof line - 1;
+            memcpy(line, buf + off, k);
+            line[k] = 0;
+            ui_text(s, f, PAD, y, line, T->accent, w);
+            off += k;
+        }
+        ap_wipe(line, sizeof line);
+    } else {
+        ui_text(s, F, PAD, CONTENT_Y + 16, "(too long to show)", T->dim, UI_W - 2 * PAD);
+    }
+    ap_wipe(buf, REVEAL_MAX);
 }
 
 static void draw_qr(app *a, ui_strip *s)
@@ -967,9 +1021,12 @@ void app_draw(app *a, ui_strip *s)
         break;
     }
     case SCR_ENTRY:
-        ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-        for (int i = a->top; i < a->nrows && i < a->top + ap_visible(a); i++) draw_entry_row(a, s, i, buf);
-        ap_draw_scrollbar(a, s, a->nrows);
+        if (reveal_needs_panel(a, buf)) draw_reveal_panel(a, s, buf);
+        else {
+            ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
+            for (int i = a->top; i < a->nrows && i < a->top + ap_visible(a); i++) draw_entry_row(a, s, i, buf);
+            ap_draw_scrollbar(a, s, a->nrows);
+        }
         ap_draw_toast(a, s);
         hint = U_ENTER " type  A auto  E edit  Q qr  ? keys";
         if (a->nrows && a->rows[a->sel].kind == R_TOTP) { /* the code needs the clock */

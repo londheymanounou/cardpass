@@ -77,6 +77,7 @@ void cp_settings_default(cp_settings *s)
 {
     memset(s, 0, sizeof *s);
     s->animations = true;
+    s->reveal_toggle = true;   /* press R to show, press again to hide (holding is hard to rely on) */
     s->splash = true;
     s->autolock_s = 300;
     s->dim_s = 20;

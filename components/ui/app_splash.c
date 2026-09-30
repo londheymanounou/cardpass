@@ -3,7 +3,7 @@
 #include <math.h>
 #include "app_priv.h"
 
-#define SPLASH_MS 1800u
+#define SPLASH_MS 3000u
 
 static uint16_t mix(uint16_t a, uint16_t b, float t)             /* RGB565 blend, t = share of b */
 {

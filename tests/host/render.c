@@ -975,6 +975,42 @@ int main(int argc, char **argv)
     CHECK(!A.db, "auto-lock");
     app_lock(&A);
 
+    /* a revealed password is shown in full: in the row when it fits, else wrapped over the whole content area */
+    {
+        static const char *const pws[] = {"Sm4ll-pw-16chars",
+                                          "correct-horse-battery-staple-Xk9-2024!",
+                                          "zQ7$mW2#pL9@vN4&rT6*yB1^hJ8%cF3!kD5(xG0)aS7+eU2=iO9-nM4_wR6~tY1`uH8|jK3;lZ5:bV0?qP7/xC2.dE9,fA4"
+                                          "zQ7$mW2#pL9@vN4&rT6*yB1^hJ8%cF3!kD5(xG0)aS7+eU2=iO9-nM4_wR6~tY1"};
+        cfg.large_font = false;
+        for (int i = 0; i < 3; i++) {
+            app_lock(&A);
+            app_init(&A, &PLAT, &cfg);
+            open_db("aes_kpxc.kdbx", "test");
+            select_title("Gmail");
+            key(K_ENTER);
+            key('e');
+            keys(K_DOWN, 2);
+            key(K_ENTER);
+            keys(K_BACKSPACE, 200);
+            type(pws[i]);
+            key(K_ENTER);
+            key('s' | K_FN);
+            CHECK(strstr(A.msg, "Saved"), "long password saved: %s", A.msg);
+            key('`');
+            select_title("Gmail");
+            key(K_ENTER);
+            select_row_kind(1 /* R_PASS */);
+            key('r');
+            CHECK(A.revealed, "revealed with one press (toggle is the default)");
+            char nm[32];
+            snprintf(nm, sizeof nm, "10%d_reveal_len%d", 2 + i, (int)strlen(pws[i]));
+            snap(nm);
+            key('r');
+            CHECK(!A.revealed, "second press hides it again");
+        }
+        app_lock(&A);
+    }
+
     /* splash: shown first when on, leaves by timer or any key, never when off, survives a settings round trip */
     {
         cp_settings sc;
@@ -993,9 +1029,9 @@ int main(int argc, char **argv)
         CHECK(A.scr == SCR_SPLASH, "starts on the splash");
         snap("99_splash");
         app_tick(&A, 1000);
-        app_tick(&A, 2500);
-        CHECK(A.scr == SCR_SPLASH, "still showing after 1.5 s");
-        app_tick(&A, 2900);
+        app_tick(&A, 3500);
+        CHECK(A.scr == SCR_SPLASH, "still showing after 2.5 s");
+        app_tick(&A, 4100);
         CHECK(A.scr == SCR_PICKER, "timer leaves the splash");
         snap("100_after_splash");
         app_init(&A, &PLAT, &sc);

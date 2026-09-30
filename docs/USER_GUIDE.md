@@ -41,7 +41,7 @@ title, user name, URL and tags. Enter opens, `` ` `` goes back, fn + `` ` `` cle
 |---|---|
 | Enter | **type** the selected field into the computer (USB, or Bluetooth if connected) |
 | A | auto-type the whole login (default `{USERNAME}{TAB}{PASSWORD}{ENTER}`, or the entry's own sequence) |
-| R | reveal the selected password (hold, or press to toggle: Settings -> Reveal) |
+| R | reveal the selected password (press to show, press again to hide; Settings -> Reveal can change it to hold) |
 | Q | show the selected field as a **QR code** (phones can scan it; any key closes it) |
 | F | add / remove from favorites |
 | E | edit |
@@ -73,7 +73,7 @@ USB drive, set time, groups, change password, Bluetooth.
   would still open with the old password.
 - **Settings**: theme, text size, reveal mode, **animations (optional)**, auto-lock, dim and screen-off
   times, keyboard layout, typing speed, time zone, "weak below" threshold, expiry warning, default
-  auto-type sequence, and the **splash screen** (the CardPass logo at start-up, about 2 s, any key skips it).
+  auto-type sequence, and the **splash screen** (the CardPass logo at start-up, about 3 s, any key skips it).
 
 ## Typing over USB, Bluetooth, and drive mode
 
