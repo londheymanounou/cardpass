@@ -194,6 +194,9 @@ void app_main(void)
     cp_settings cfg;
     hw_settings_load(text, sizeof text);
     cp_settings_parse(&cfg, text);
+#ifdef CARDPASS_QEMU
+    cfg.splash = false;                              /* the scripted keys start at the picker */
+#endif
     brightness = cfg.brightness;
     animations = cfg.animations;
     hw_display_brightness(brightness);

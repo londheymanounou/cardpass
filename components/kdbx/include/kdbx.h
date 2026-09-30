@@ -22,6 +22,7 @@ typedef enum {
     KDBX_ERR_KEYFILE,     /* key file unreadable or invalid */
     KDBX_ERR_NOMEM,
     KDBX_ERR_EDIT,        /* edit refers to a missing item or is invalid (nothing written) */
+    KDBX_ERR_REINDEX,     /* kdbx_save: the file WAS saved, but the database could not be reopened (memory) */
 } kdbx_err;
 
 const char *kdbx_strerror(kdbx_err e);
@@ -146,12 +147,16 @@ size_t kdbx_delete_group(const kdbx_db *db, const kdbx_group *g, kdbx_edit out[2
 /* Safe save: re-reads path, applies edits while streaming into path.tmp (new seeds,
  * IV and inner stream key; unknown XML, history and attachments carried over),
  * verifies path.tmp (every HMAC, XML well-formed), keeps the original as path.bak,
- * renames, then replaces *db by the saved database (old index freed first, so
- * two indexes never coexist in RAM).
+ * renames, then replaces *db by the saved database.
+ * The index is FREED BEFORE the save starts (the save only needs the file, the edits and the cached key), so
+ * the save needs the same RAM whatever the database size; the edits are copied first because their strings
+ * (field names, tags) may point into the index. Every pointer into the old index is dead after this call:
+ * look entries and groups up again by uuid.
  * newkey != NULL: new master key with a new KDF seed and `rounds` (0 = keep); runs the KDF.
  * now: unix seconds for modification times.
- * On error *db is untouched, except when the file was saved but re-reading it
- * failed (e.g. out of memory): then *db is NULL and the user must unlock again. */
+ * On error *db is the old database reopened from the unchanged file. If that does not fit in memory either,
+ * *db is NULL and nothing was saved. KDBX_ERR_REINDEX: saved, but the new file could not be reopened
+ * (*db is NULL): the user must unlock again. */
 kdbx_err kdbx_save(kdbx_db **db, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
                    const kdbx_key *newkey, uint64_t rounds);
 

@@ -129,6 +129,10 @@ checked by independent readers with `python tools/check_saved.py`.
 - Done: standard field names shared, strings unaligned, empty values not stored, fields packed
   per entry (was 321 KB for 1,000); save verifies the written file without building an index and
   frees the old index before building the new one (was +528 KB for 1,000).
+- QEMU measurement (docs/qemu.md): ~262 B per entry in the index, unlock peak = index + ~60 KB; 800 entries
+  unlock AND save on the 330 KB QEMU heap, 1,000 do not. Saving used to need the old index on top of ~110 KB of
+  save buffers; `kdbx_save` now frees the index first and reopens afterwards, so a save costs the same as an unlock.
+  Every pointer into the old index is dead after a save (the UI already re-finds things by uuid).
 - Lesson from ../deck (same hardware): a 65 KB full-frame sprite left it ~1 KB from a boot
   failure. CardPass UI must draw straight to the panel / small strips, no full framebuffer.
 

@@ -326,6 +326,19 @@ int main(int argc, char **argv)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     CHECK(file_size(tmp) < 0, ".tmp left behind");
 
+    /* e2. the index is freed before the save runs: edit strings that point into it must still work */
+    {
+        const kdbx_entry *h = by_title(db, "Gmail");
+        kdbx_edit ed2 = {.op = KDBX_EDIT_ENTRY, .tags = h ? h->tags : ""};          /* tags, field names: inside the index */
+        if (h) memcpy(ed2.uuid, h->uuid, 16);
+        kdbx_edit_field fx[2] = {{h ? h->fields[0].key : "Title", "Gmail", false}, {h ? h->fields[1].key : "UserName", "bob@gmail.com", false}};
+        ed2.fields = fx;
+        ed2.nfields = 2;
+        CHECK((e = save(&db, path, &ed2, 1)) == KDBX_OK, "edit with pointers into the index: %s", kdbx_strerror(e));
+        h = by_title(db, "Gmail");
+        CHECK(h && !strcmp(h->username, "bob@gmail.com"), "edited user name");
+    }
+
     /* f. change master key + rounds */
     kdbx_key nk;
     kdbx_key_init(&nk, "n3w pässword", strlen("n3w pässword"), NULL);

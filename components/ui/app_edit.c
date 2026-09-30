@@ -96,9 +96,9 @@ bool ap_save_ex(app *a, const kdbx_edit *ed, size_t n, const kdbx_key *newkey, u
     kdbx_err e = kdbx_save(&a->db, a->path, ed, n, now, newkey, rounds);
     kdbx_set_progress(NULL, NULL);
     a->progress = -1;
-    if (!a->db) { /* saved, but the new index did not fit: start over */
+    if (!a->db) { /* the index is freed during a save: it did not fit again, start over */
         app_lock(a);
-        snprintf(a->msg, sizeof a->msg, e ? "Saved. Unlock again" : "Saved");
+        snprintf(a->msg, sizeof a->msg, !e || e == KDBX_ERR_REINDEX ? "Saved. Out of memory: unlock again" : "Not saved: %s. Unlock again", kdbx_strerror(e));
         return false;
     }
     if (e) {

@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_vfs_fat.h"
+#include "wear_levelling.h"
 #include "hw.h"
 
 /* ---- display: nothing to draw on ---- */
@@ -21,7 +22,7 @@ void hw_display_fade(int pct, int ms) { (void)pct; (void)ms; }
 
 /* ---- keyboard: scripted; a step with key 0 only prints a heap marker ---- */
 typedef struct { uint32_t key; const char *mark; } step;
-enum { NFILES = 4, MAXSTEPS = NFILES * 24 };
+enum { NFILES = 5, MAXSTEPS = NFILES * 40 };
 static step script[MAXSTEPS];
 static unsigned nsteps;
 
@@ -30,15 +31,19 @@ static void add(uint32_t key, const char *mark) { script[nsteps].key = key; scri
 /* per database: pick it, unlock with "test", search, open an entry, reveal, lock */
 static void build_script(void)
 {
-    static const char *const names[NFILES] = {"q0200", "q0400", "q0600", "q0800"};
+    static const char *const names[NFILES] = {"q0200", "q0400", "q0600", "q0800", "q1000"};
     for (int f = 0; f < NFILES; f++) {
-        for (int k = 0; k < f; k++) add(K_DOWN, NULL);
+        if (f) add(K_DOWN, NULL);                          /* the picker preselects the database opened last */
         add(K_ENTER, NULL);
         add('t', NULL); add('e', NULL); add('s', NULL); add('t', NULL);
         add(K_ENTER, NULL);
         add(0, names[f]);                                 /* heap after opening this database */
         add('a', NULL); add(K_ENTER, NULL);
         add('r', NULL); add(0, "revealed");
+        add('e', NULL); add(K_DOWN, NULL); add(K_DOWN, NULL); add(K_DOWN, NULL);   /* edit the URL, save */
+        add(K_ENTER, NULL); add('x', NULL); add(K_ENTER, NULL);
+        add('s' | K_FN, NULL);
+        add(0, "saved");
         add(K_ESC, NULL); add(K_ESC, NULL); add(K_ESC, NULL);
         add('l' | K_FN, NULL);
         add(0, "locked");
@@ -77,7 +82,8 @@ bool hw_sd_mount(void)
 {
     if (mounted) return true;
     esp_vfs_fat_mount_config_t mc = {.format_if_mount_failed = false, .max_files = 4, .allocation_unit_size = 4096};
-    mounted = esp_vfs_fat_rawflash_mount(HW_SD_ROOT, "storage", &mc) == ESP_OK;   /* read-only: saving is not testable here */
+    static wl_handle_t wl = WL_INVALID_HANDLE;
+    mounted = esp_vfs_fat_spiflash_mount_rw_wl(HW_SD_ROOT, "storage", &mc, &wl) == ESP_OK;
     return mounted;
 }
 void hw_sd_unmount(void) { mounted = false; }

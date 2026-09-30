@@ -23,18 +23,29 @@ sh tools/qemu_run.sh 300        # merges the image, boots, prints the scripted s
 `hw_qemu.c` holds the key script (pick database, unlock, search, open entry, reveal, lock, for each size).
 The SD card is the read-only `storage` FAT partition, so saving is not testable here.
 
-## Findings (first run)
-Baseline free heap after boot is 330 KB here, but this build has no USB/Wi-Fi/Bluetooth stacks, so the real
-device will have less (measure it). Heap after unlock / lowest free heap during unlock:
+## Findings
+The QEMU build has no USB/Wi-Fi/Bluetooth stacks and the SD card is a flash FAT partition, so its baseline free
+heap (330 KB after boot and mount) is higher than the device's will be: take 30-60 KB off for the real thing.
+`storage` is a writable FAT partition here, so the script also edits an entry and saves it.
 
-| entries | free after unlock | lowest free during unlock |
-|---|---|---|
-| 200 | 276 KB | 217 KB |
-| 400 | 223 KB | 166 KB |
-| 600 | 119 KB | 64 KB |
-| 800 | 171 KB | 62 KB |
-| 1,000 | fails: "Out of memory" | 48 KB at failure |
+Free heap after unlock, and the lowest free heap seen so far (a global minimum, so it only moves down as
+databases get bigger). Index cost is about 262 bytes per entry (title, user, URL, password):
 
-So the peak while unlocking, not the finished index, is what limits the size, and 1,000 entries do not fit.
-The numbers are not linear (600 keeps more than 800 afterwards): something keeps a large buffer alive after
-unlock. Both are worth fixing before relying on the ~800-entry claim in PROGRESS.md.
+| entries | free after unlock | lowest free (unlock) | lowest free (after save) |
+|---|---|---|---|
+| 200 | 275 KB | 215 KB | 206 KB |
+| 400 | 222 KB | 155 KB | 154 KB |
+| 600 | 169 KB | 103 KB | 101 KB |
+| 800 | 117 KB | 53 KB | 50 KB |
+| 1,000 | fails: "Out of memory" | 33 KB | |
+
+Correction: an earlier version of this table had the 600 and 800 rows swapped (the script's arrow-key presses
+landed on the wrong file because the picker preselects the last database opened).
+
+What changed because of this test:
+- Saving used to need the old index in RAM on top of ~110 KB of save buffers, so an 800-entry database could be
+  opened but not saved. `kdbx_save` now frees the index before it starts (it only needs the file, the edits and
+  the cached key; the edits are copied first because their strings can point into the index) and reopens the
+  database after the save's own buffers are freed. A save now needs about the same RAM as an unlock.
+- Unlock and save both top out around 800-900 entries here (about 700-800 on the device, to be measured).
+  Above that unlock fails with "Out of memory (database too large?)".

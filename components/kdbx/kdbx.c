@@ -33,8 +33,9 @@ const char *kdbx_strerror(kdbx_err e)
     case KDBX_ERR_KEY: return "Wrong password or key file";
     case KDBX_ERR_CORRUPT: return "Database is corrupted";
     case KDBX_ERR_KEYFILE: return "Invalid key file";
-    case KDBX_ERR_NOMEM: return "Out of memory";
+    case KDBX_ERR_NOMEM: return "Out of memory (database too large?)";
     case KDBX_ERR_EDIT: return "Invalid edit";
+    case KDBX_ERR_REINDEX: return "Saved, but too large to reopen";
     }
     return "Unknown error";
 }

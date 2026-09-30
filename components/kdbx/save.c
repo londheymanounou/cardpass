@@ -1306,10 +1306,47 @@ static kdbx_err verify_file(const char *path, const uint8_t tk[32])
     return err;
 }
 
-kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits, size_t nedits, int64_t now,
+/* The index is freed before saving and edit strings (field names, tags) may point into it, so the save works on
+ * its own copy, wiped when done (it holds plaintext values). */
+static kdbx_edit *edits_dup(const kdbx_edit *in, size_t n, size_t *size)
+{
+    size_t total = n * sizeof *in, nf = 0;
+    for (size_t i = 0; i < n; i++) {
+        nf += in[i].nfields;
+        total += in[i].nfields * sizeof(kdbx_edit_field) + (in[i].tags ? strlen(in[i].tags) + 1 : 0) + (in[i].name ? strlen(in[i].name) + 1 : 0);
+        for (size_t k = 0; k < in[i].nfields; k++)
+            total += (in[i].fields[k].key ? strlen(in[i].fields[k].key) + 1 : 0) + (in[i].fields[k].value ? strlen(in[i].fields[k].value) + 1 : 0);
+    }
+    uint8_t *b = malloc(total ? total : 1);
+    if (!b) return NULL;
+    kdbx_edit *ed = (kdbx_edit *)b;
+    kdbx_edit_field *fa = (kdbx_edit_field *)(b + n * sizeof *in);
+    char *p = (char *)(fa + nf);
+    if (n) memcpy(ed, in, n * sizeof *in);                 /* in may be NULL when there are no edits */
+#define DUP(dst, src) do { if (src) { size_t l_ = strlen(src) + 1; memcpy(p, src, l_); dst = p; p += l_; } } while (0)
+    for (size_t i = 0; i < n; i++) {
+        DUP(ed[i].tags, in[i].tags);
+        DUP(ed[i].name, in[i].name);
+        ed[i].fields = in[i].nfields ? fa : NULL;
+        for (size_t k = 0; k < in[i].nfields; k++) {
+            fa[k] = in[i].fields[k];
+            DUP(fa[k].key, in[i].fields[k].key);
+            DUP(fa[k].value, in[i].fields[k].value);
+        }
+        fa += in[i].nfields;
+    }
+#undef DUP
+    *size = total;
+    return ed;
+}
+
+kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, size_t nedits, int64_t now,
                    const kdbx_key *newkey, uint64_t rounds)
 {
     const kdbx_db *db = *dbp;
+    kdbx_edit *edits = NULL;
+    size_t esz = 0;
+    bool freed = false, committed = false;
     size_t pl = strlen(path);
     char *tmp = malloc(pl + 5), *bak = malloc(pl + 5);
     saver *s = calloc(1, sizeof *s);
@@ -1325,11 +1362,17 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits, size
 
     if (o) out_init(o);
     if (!tmp || !bak || !s || !o || !h || !nh || !appl || !cap || !capd) goto done;
-    if (!valid_edits(db, edits, nedits, rounds, newkey)) { err = KDBX_ERR_EDIT; goto done; }
+    if (!valid_edits(db, edits_in, nedits, rounds, newkey)) { err = KDBX_ERR_EDIT; goto done; }
+    if (!(edits = edits_dup(edits_in, nedits, &esz))) goto done;
+    memcpy(tk, db->transformed, 32);
+    kdbx_close(*dbp);            /* the save needs no index: free it so the size of the database does not matter */
+    *dbp = NULL;
+    db = NULL;
+    freed = true;
     snprintf(tmp, pl + 5, "%s.tmp", path);
     snprintf(bak, pl + 5, "%s.bak", path);
 
-    s->db = db;
+    s->db = NULL;
     s->ed = edits;
     s->n = nedits;
     s->applied = appl;
@@ -1346,7 +1389,6 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits, size
     }
 
     if (!(in = fopen(path, "rb"))) { err = KDBX_ERR_IO; goto done; }
-    memcpy(tk, db->transformed, 32);
     if ((err = kdbx_read_header(in, h)) != KDBX_OK) goto done;
     rewind(in);
     if (moves) {
@@ -1376,16 +1418,13 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits, size
     if (rename(path, bak)) { err = KDBX_ERR_IO; goto done; }
     renaming = true;
     if (rename(tmp, path)) { err = KDBX_ERR_IO; goto done; } /* kdbx_recover() finishes this */
-    kdbx_close(*dbp);
-    *dbp = NULL;
-    FILE *t = fopen(path, "rb");
-    err = t ? kdbx_open_tk(t, NULL, tk_new, dbp) : KDBX_ERR_IO;
-    if (t) fclose(t);
+    committed = true;                                      /* reopened below, once the save's own buffers are freed */
 
 done:
     if (out) fclose(out);
     if (in) fclose(in);
     if (err && !renaming && tmp) remove(tmp);
+    if (edits) { mbedtls_platform_zeroize(edits, esz); free(edits); }
     if (s) {
         tbuf *bufs[] = {&s->attrs, &s->text, &s->plain, &s->pend, &s->ebuf, &s->uuid_text, &s->deleted};
         for (size_t i = 0; i < sizeof bufs / sizeof *bufs; i++) tbuf_free(bufs[i]);
@@ -1394,9 +1433,17 @@ done:
     if (cap)
         for (size_t i = 0; i < nedits; i++) tbuf_free(&cap[i]);
     if (o) out_free(o);
+    free(tmp); free(bak); free(s); free(o); free(h); free(nh); free(appl); free(cap); free(capd);
+    /* Everything the save needed is released: only now reopen (the new file, or the old one if nothing was saved),
+     * so the peak is one unlock and not an unlock on top of the save buffers. */
+    if (freed && !*dbp && (committed || !renaming)) {
+        FILE *rt = fopen(path, "rb");
+        kdbx_err re = rt ? kdbx_open_tk(rt, NULL, committed ? tk_new : tk, dbp) : KDBX_ERR_IO;
+        if (rt) fclose(rt);
+        if (committed && re) err = KDBX_ERR_REINDEX;       /* saved, but the file did not fit in memory */
+    }
     mbedtls_platform_zeroize(tk, sizeof tk);
     mbedtls_platform_zeroize(tk_new, sizeof tk_new);
-    free(tmp); free(bak); free(s); free(o); free(h); free(nh); free(appl); free(cap); free(capd);
     return err;
 }
 
