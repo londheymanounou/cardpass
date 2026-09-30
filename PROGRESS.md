@@ -167,12 +167,18 @@ checked by independent readers with `python tools/check_saved.py`.
   screen (`app_ask_passkey`: choose account, Enter approves, ` denies, 30 s timeout, auto-lock and
   fn+L suspended meanwhile) while CTAPHID KEEPALIVE packets go out every 100 ms. CDC (serial) is
   disabled: nothing can leak through the port.
-- **Size with USB: 527 KB app (13.2% of the 3.9 MB partition), static RAM 29 KB.** dist/CardPass.bin
+- **USB drive mode (plan stage 4)**: Tab menu -> "USB drive" -> confirm. The app locks and wipes the
+  database, unmounts FAT, opens the SD card raw (`hw_sd_raw_open`) and re-enumerates USB as a
+  mass-storage-ONLY device (`hw_usb_drive`, esp_tinyusb MSC over `sdmmc_read/write_sectors`; no
+  keyboard, no security key, no database open). Leaving (or `) waits for the last deferred write,
+  drops MSC, remounts FAT, restores the composite HID device and rescans the files. Host-tested:
+  locked before entering, nothing else reachable, a file copied meanwhile is listed afterwards.
+  The SD/USB part is compile-verified only.
+- **Size with USB + drive mode: 538 KB app (13.5% of the 3.9 MB partition), static RAM 33 KB.** dist/CardPass.bin
   (launcher) and CardPass-full.bin (M5Burner, merged) come from tools/package.py; header validated.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
-- TODO: USB mass storage (SD as a drive, locks + unmounts), BLE HID, NTP/manual time, light sleep,
-  real-device checks (docs/first-hardware.md).
+- TODO: BLE HID, NTP/manual time, light sleep, real-device checks (docs/first-hardware.md).
 
 ## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its

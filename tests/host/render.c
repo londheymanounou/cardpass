@@ -58,8 +58,10 @@ static char saved_settings[512];
 static void save_settings(void *c, const char *t) { (void)c; snprintf(saved_settings, sizeof saved_settings, "%s", t); }
 static void present(void *c);
 static void pump_fn(void *c);
+static bool drive_on;
+static bool usb_drive(void *c, bool enter) { (void)c; drive_on = enter; return true; }
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
-                                  save_settings, present, pump_fn, NULL};
+                                  save_settings, present, pump_fn, usb_drive, NULL};
 
 static void draw_band(uint16_t *dst, int y0, int y1)
 {
@@ -379,6 +381,27 @@ int main(int argc, char **argv)
         CHECK(r == -1 && pump_n > 50 && A.db, "times out after 30 s: %d after %d passes", r, pump_n);
         key('l' | K_FN);
         CHECK(A.db == NULL || A.scr != SCR_FIDO, "not stuck in the modal");
+    }
+
+    /* USB drive mode: locks first, a file copied on the PC shows up afterwards */
+    {
+        open_db("aes_kpxc.kdbx", "test");
+        key(K_TAB);
+        keys(K_DOWN, 6);
+        key(K_ENTER);
+        snap("41_drive_confirm");
+        key(K_ENTER);
+        snap("42_drive_mode");
+        CHECK(A.scr == SCR_DRIVE && drive_on && !A.db, "drive mode locked the database");
+        key('x');
+        key(K_TAB);
+        CHECK(A.scr == SCR_DRIVE, "no other screen reachable");
+        copy("chacha.kdbx");                       /* "the PC copied a file" */
+        key(96);
+        CHECK(!drive_on && A.scr == SCR_PICKER && !A.db, "left drive mode");
+        int seen = 0;
+        for (int i = 0; i < A.ndbs; i++) seen |= !strcmp(A.dbs[i], "chacha.kdbx");
+        CHECK(seen, "new file listed after leaving");
     }
 
     /* key file: tab cycles */

@@ -35,12 +35,15 @@ typedef struct {
     void (*save_settings)(void *ctx, const char *text);
     void (*present)(void *ctx);                /* push dirty strips now (progress during long work) */
     void (*pump)(void *ctx);                   /* one loop pass: keys, app_tick, present (modal screens) */
+    /* USB drive mode: enter = unmount the card and expose it to the PC (false: failed);
+     * leave = stop and remount. The app has locked and wiped the database before entering. */
+    bool (*usb_drive)(void *ctx, bool enter);
     void *ctx;
 } app_platform;
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)

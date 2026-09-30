@@ -119,8 +119,10 @@ static void pump(void *ctx)
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
+static bool usb_drive(void *ctx, bool enter) { return hw_usb_drive(enter); }
+
 static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
-                                      save_settings, present, pump, NULL};
+                                      save_settings, present, pump, usb_drive, NULL};
 
 void app_main(void)
 {

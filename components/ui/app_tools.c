@@ -27,7 +27,7 @@ void ap_return(app *a, int scr)
 
 /* ======================= menu ======================= */
 
-enum { M_NEW_ENTRY, M_GENERATOR, M_AUDIT, M_EXPIRY, M_SETTINGS, M_LOCK, M_NEW_DB };
+enum { M_NEW_ENTRY, M_GENERATOR, M_AUDIT, M_EXPIRY, M_SETTINGS, M_LOCK, M_NEW_DB, M_DRIVE };
 
 static int menu_items(app *a, int *out)
 {
@@ -39,9 +39,11 @@ static int menu_items(app *a, int *out)
         out[n++] = M_EXPIRY;
         out[n++] = M_SETTINGS;
         out[n++] = M_LOCK;
+        out[n++] = M_DRIVE;
     } else {
         out[n++] = M_NEW_DB;
         out[n++] = M_SETTINGS;
+        out[n++] = M_DRIVE;
     }
     return n;
 }
@@ -76,6 +78,7 @@ void ap_menu_key(app *a, uint32_t k, bool fn)
         case M_SETTINGS: a->scr = SCR_SETTINGS; a->sel = a->top = 0; a->text_edit = false; ap_mark_all(a); break;
         case M_LOCK: app_lock(a); break;
         case M_NEW_DB: ap_create_open(a); break;
+        case M_DRIVE: ap_confirm(a, CONFIRM_DRIVE, a->db ? "Lock and share the SD card with a PC?" : "Share the SD card with a PC?"); break;
         }
     }
 }
@@ -83,8 +86,8 @@ void ap_menu_key(app *a, uint32_t k, bool fn)
 void ap_menu_draw(app *a, ui_strip *s, const char **hint)
 {
     static const char *const names[] = {"New entry", "Password generator", "Password audit", "Expiring entries",
-                                        "Settings", "Lock now", "New database"};
-    static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+"};
+                                        "Settings", "Lock now", "New database", "USB drive"};
+    static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+", ICON_USB};
     int it[8], n = menu_items(a, it);
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     for (int i = 0; i < n; i++) ap_draw_row(a, s, i, icons[it[i]], T->accent, names[it[i]], NULL, 0);
@@ -350,6 +353,15 @@ void ap_confirm_key(app *a, uint32_t k, bool fn)
             a->scr = SCR_ENTRY;
         }
         break;
+    case CONFIRM_DRIVE:
+        if (yes) {
+            app_lock(a);                                   /* wipes the database and every buffer first */
+            if (a->p->usb_drive(a->p->ctx, true)) a->scr = SCR_DRIVE;
+            else snprintf(a->msg, sizeof a->msg, "No SD card or USB error");
+        } else if (no) {
+            a->scr = SCR_MENU;
+        }
+        break;
     case CONFIRM_SAVE_EDIT:
         if (yes) ap_edit_finish(a, true);
         else if (k == 'd' || k == 'D') ap_edit_finish(a, false);
@@ -363,7 +375,15 @@ void ap_confirm_draw(app *a, ui_strip *s, const char **hint)
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     ui_fill(s, PAD * 2, CONTENT_Y + 20, UI_W - PAD * 4, 50, T->bar_bg);
     ui_fill(s, PAD * 2, CONTENT_Y + 20, 3, 50, T->warn);
-    ui_text(s, F, PAD * 4, CONTENT_Y + 30, a->confirm_text, T->fg, UI_W - PAD * 6);
+    const char *t = a->confirm_text;   /* wrapped over up to two lines */
+    for (int line = 0; line < 2 && *t; line++) {
+        char buf[64];
+        size_t n = ui_wrap(F, t, UI_W - PAD * 8);
+        snprintf(buf, sizeof buf, "%.*s", (int)n, t);
+        ui_text(s, F, PAD * 4, CONTENT_Y + 26 + line * (F->height + 3), buf, T->fg, UI_W - PAD * 6);
+        t += n;
+        while (*t == ' ') t++;
+    }
     *hint = a->confirm_action == CONFIRM_SAVE_EDIT ? U_ENTER " save  D discard  ` keep editing" : U_ENTER " yes  ` no";
 }
 
@@ -553,4 +573,25 @@ void ap_help_draw(app *a, ui_strip *s, const char **hint)
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     for (int i = 0; i < 6; i++) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + i * 16, l[i], T->fg, UI_W - PAD * 4);
     *hint = "any key: back";
+}
+
+/* ======================= USB drive mode ======================= */
+
+void ap_drive_key(app *a, uint32_t k, bool fn)
+{
+    (void)fn;
+    if (k != '`' && k != K_ESC && k != K_ENTER) return;
+    bool ok = a->p->usb_drive(a->p->ctx, false);
+    app_lock(a);                                           /* back to the picker, files rescanned */
+    if (!ok) snprintf(a->msg, sizeof a->msg, "SD card not remounted: reinsert it");
+}
+
+void ap_drive_draw(app *a, ui_strip *s, const char **hint)
+{
+    ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
+    ui_text(s, F, PAD * 2, CONTENT_Y + 6, "The SD card is a drive", T->accent, UI_W - PAD * 4);
+    static const char *const lines[] = {"Copy .kdbx and key files on your PC.", "Eject the drive on the PC first,",
+                                        "then leave here. Nothing is unlocked:", "no database is open in this mode."};
+    for (int i = 0; i < 4; i++) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 30 + i * 14, lines[i], T->fg, UI_W - PAD * 4);
+    *hint = "` done (after ejecting on the PC)";
 }

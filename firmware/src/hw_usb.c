@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "hw.h"
 #include "tinyusb.h"
+#include "tusb_msc_storage.h"
 
 enum { ITF_KBD = 0, ITF_FIDO, ITF_COUNT };
 enum { STR_LANG, STR_MANUF, STR_PRODUCT, STR_SERIAL, STR_KBD, STR_FIDO };
@@ -42,13 +43,54 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     xQueueSend(fido_q, buffer, 0);
 }
 
-bool hw_usb_init(void)
+static bool install_hid(void)
 {
-    fido_q = xQueueCreate(16, 64);
     tinyusb_config_t cfg = {.device_descriptor = NULL, .string_descriptor = strings,
                             .string_descriptor_count = sizeof strings / sizeof *strings, .external_phy = false,
                             .configuration_descriptor = config_desc};
     return tinyusb_driver_install(&cfg) == ESP_OK;
+}
+
+bool hw_usb_init(void)
+{
+    if (!fido_q) fido_q = xQueueCreate(16, 64);
+    return install_hid();
+}
+
+/* ---- drive mode: a mass-storage-only device; no keyboard, no security key ---- */
+static const uint8_t msc_config_desc[] = {
+    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN, 0, 100),
+    TUD_MSC_DESCRIPTOR(0, 4, 0x01, 0x81, 64),
+};
+static const char *msc_strings[] = {(const char[]){0x09, 0x04}, "CardPass", "CardPass drive", "000001", "CardPass SD card"};
+
+bool hw_usb_drive(bool enter)
+{
+    if (enter) {
+        hw_sd_unmount();                              /* the app must not touch FAT while the PC owns the card */
+        sdmmc_card_t *card = hw_sd_raw_open();
+        if (!card) { hw_sd_mount(); return false; }
+        tinyusb_driver_uninstall();
+        tinyusb_msc_sdmmc_config_t mc = {.card = card};
+        if (tinyusb_msc_storage_init_sdmmc(&mc) != ESP_OK) goto fail;
+        tinyusb_config_t cfg = {.device_descriptor = NULL, .string_descriptor = msc_strings,
+                                .string_descriptor_count = sizeof msc_strings / sizeof *msc_strings, .external_phy = false,
+                                .configuration_descriptor = msc_config_desc};
+        if (tinyusb_driver_install(&cfg) != ESP_OK) { tinyusb_msc_storage_deinit(); goto fail; }
+        return true;
+    fail:
+        hw_sd_raw_close();
+        hw_sd_mount();
+        install_hid();
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(300));                   /* let the last deferred write reach the card */
+    tinyusb_driver_uninstall();
+    tinyusb_msc_storage_deinit();
+    hw_sd_raw_close();
+    bool ok = hw_sd_mount();
+    install_hid();
+    return ok;
 }
 
 bool hw_usb_ready(void) { return tud_mounted() && !tud_suspended(); }

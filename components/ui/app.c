@@ -455,6 +455,7 @@ void app_key(app *a, uint32_t key, bool down)
     }
     if (!down) return;
     if (fn && (k == 'l' || k == 'L') && a->db && !a->fido_active) { app_lock(a); return; } /* fn+L: lock now */
+    if (a->scr == SCR_DRIVE) { ap_drive_key(a, k, fn); return; }   /* nothing else is reachable in drive mode */
     if (k == K_TAB && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
                        a->scr == SCR_ENTRY)) {
         ap_menu_open(a);
@@ -525,6 +526,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_CREATE: ap_create_key(a, k, fn); break;
     case SCR_HELP: a->scr = a->menu_back; ap_mark_all(a); break;
     case SCR_FIDO: ap_fido_key(a, k, fn); break;
+    case SCR_DRIVE: ap_drive_key(a, k, fn); break;
     }
 }
 
@@ -844,6 +846,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_CREATE: snprintf(title, sizeof title, "New database"); break;
     case SCR_HELP: snprintf(title, sizeof title, "Keys"); break;
     case SCR_FIDO: snprintf(title, sizeof title, "%s Passkey", ICON_KEY); break;
+    case SCR_DRIVE: snprintf(title, sizeof title, "%s USB drive", ICON_USB); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
     }
     if (s->y0 < BAR_H) ap_draw_bar(a, s, title);
@@ -895,6 +898,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_CREATE: ap_create_draw(a, s, &hint); break;
     case SCR_HELP: ap_help_draw(a, s, &hint); break;
     case SCR_FIDO: ap_fido_draw(a, s, &hint); break;
+    case SCR_DRIVE: ap_drive_draw(a, s, &hint); break;
     }
     ap_wipe(buf, REVEAL_MAX);
     free(buf);

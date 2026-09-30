@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <sys/stat.h>
 #include "driver/sdspi_host.h"
 #include "driver/spi_master.h"
@@ -43,3 +44,36 @@ void hw_sd_unmount(void)
 }
 
 bool hw_sd_ok(void) { return card != NULL; }
+
+static sdmmc_card_t *raw_card;
+static sdmmc_host_t raw_host;
+
+sdmmc_card_t *hw_sd_raw_open(void)
+{
+    if (raw_card || card || !bus_up) return raw_card;
+    raw_host = (sdmmc_host_t)SDSPI_HOST_DEFAULT();
+    raw_host.max_freq_khz = 20000;
+    sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot.gpio_cs = PIN_CS;
+    slot.host_id = SPI3_HOST;
+    sdspi_dev_handle_t h;
+    if (raw_host.init() != ESP_OK) return NULL;
+    if (sdspi_host_init_device(&slot, &h) != ESP_OK) return NULL;
+    raw_host.slot = h;
+    sdmmc_card_t *c = calloc(1, sizeof *c);
+    if (!c || sdmmc_card_init(&raw_host, c) != ESP_OK) {
+        sdspi_host_remove_device(h);
+        free(c);
+        return NULL;
+    }
+    raw_card = c;
+    return raw_card;
+}
+
+void hw_sd_raw_close(void)
+{
+    if (!raw_card) return;
+    sdspi_host_remove_device(raw_host.slot);
+    free(raw_card);
+    raw_card = NULL;
+}

@@ -97,8 +97,10 @@ void ap_create_key(app *a, uint32_t k, bool fn);
 void ap_create_draw(app *a, ui_strip *s, const char **hint);
 void ap_create_free(app *a);
 void ap_help_draw(app *a, ui_strip *s, const char **hint);
+void ap_drive_key(app *a, uint32_t k, bool fn);
+void ap_drive_draw(app *a, ui_strip *s, const char **hint);
 void ap_fido_key(app *a, uint32_t k, bool fn);
 void ap_fido_draw(app *a, ui_strip *s, const char **hint);
 void ap_kdf_progress(void *ctx, int pct);
 
-enum { CONFIRM_DELETE_ENTRY = 1, CONFIRM_DISCARD_EDIT, CONFIRM_SAVE_EDIT };
+enum { CONFIRM_DELETE_ENTRY = 1, CONFIRM_DISCARD_EDIT, CONFIRM_SAVE_EDIT, CONFIRM_DRIVE };

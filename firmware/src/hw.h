@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "sdmmc_cmd.h"
 
 /* display: 240x135 landscape ST7789, pushed in strips */
 void hw_display_init(void);
@@ -22,11 +23,17 @@ void hw_keys_poll(void (*on_key)(uint32_t key, bool down), uint32_t now_ms);
 bool hw_sd_mount(void);
 void hw_sd_unmount(void);
 bool hw_sd_ok(void);
+/* Raw card access for USB drive mode: only while FAT is unmounted (hw_sd_unmount first). */
+sdmmc_card_t *hw_sd_raw_open(void);
+void hw_sd_raw_close(void);
 #define HW_SD_ROOT "/sd"
 #define HW_DB_DIR "/sd/cardpass"
 
 /* USB device: HID keyboard + FIDO HID */
 bool hw_usb_init(void);
+/* USB drive mode (PLAN.md stage 4): the SD card becomes a mass-storage drive for the PC and
+ * nothing else is exposed. Enter: FAT unmounted first. Leave: FAT remounted (rescan the files). */
+bool hw_usb_drive(bool enter);
 bool hw_usb_ready(void);                                  /* enumerated and not suspended */
 void hw_usb_stroke(uint8_t key, uint8_t mods);
 bool hw_usb_fido_recv(uint8_t report[64]);                /* non-blocking */

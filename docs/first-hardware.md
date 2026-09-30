@@ -47,6 +47,14 @@ approves). If a browser gives up while waiting, the KEEPALIVE timing is the plac
 dismissed first. Also verify that the serial-JTAG port really disappears while the app runs
 (PLAN.md section 5b).
 
+## 3c. USB drive mode
+
+Menu -> USB drive: the PC must show a new drive with the card's files (Windows: eject with
+"Safely remove" first, then leave the mode with `). Copy a .kdbx in, leave, and the picker must
+list it; a database copied back out must open in KeePassXC. Things to watch: the card must
+remount after leaving (otherwise "SD card not remounted: reinsert it"), the keyboard/security key
+must come back afterwards, and copying a large file must not corrupt it (compare checksums).
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |
