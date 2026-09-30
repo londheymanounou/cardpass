@@ -226,6 +226,8 @@ checked by independent readers with `python tools/check_saved.py`.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
 - TODO: light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
+- LATER, at the very end (details in `docs/LATER.md`): faster unlocking (hold the AES hardware through the KDF loop),
+  an unlock progress screen with elapsed/remaining time, a "target N seconds" round count, and Argon2id.
 - LATER (owner likes it, not now): Argon2id via an encrypted SD swap. Argon2 blocks live on the SD card,
   encrypted with a random per-unlock key held only in RAM and wiped after; estimated 5-10 min per unlock for
   64 MiB (SPI-only SD, random 1 KiB reads, ~200 MiB written per unlock) - measure before promising. Needs an
