@@ -226,6 +226,12 @@ checked by independent readers with `python tools/check_saved.py`.
 - Tested on the host: confirmation flow (approve second account / deny / timeout / not stuck).
   Everything USB-specific is compile-verified only.
 - TODO: light sleep when no USB host is attached, real-device checks (docs/first-hardware.md), optional Grove RTC.
+- LATER (owner likes it, not now): Argon2id via an encrypted SD swap. Argon2 blocks live on the SD card,
+  encrypted with a random per-unlock key held only in RAM and wiped after; estimated 5-10 min per unlock for
+  64 MiB (SPI-only SD, random 1 KiB reads, ~200 MiB written per unlock) - measure before promising. Needs an
+  exception to the "nothing password-derived on SD" rule (safe only because of the ephemeral key). Cheaper
+  first step: Argon2 only when memory <= ~256 KiB, else refuse and tell the user to switch to AES-KDF.
+  Unlock RAM peak must be fixed first (see docs/qemu.md).
 
 ## Framework decision (was open)
 - `../deck` (same Cardputer ADV) runs PlatformIO + Arduino-ESP32 2.x + M5Cardputer/M5GFX; its
