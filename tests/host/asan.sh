@@ -30,7 +30,7 @@ ARGS= run test_strength test_strength.c $C/strength/strength.c $C/gen/gen.c $C/g
 FIDO="$C/fido/cbor.c $C/fido/ctap.c $C/fido/ctaphid.c"
 ARGS="../../testdata $B" run test_fido test_fido.c $KDBX host_random.c $FIDO
 ARGS="../../testdata ${FUZZ_ITERS:-3000}" run fuzz fuzz.c $FIDO $KDBX $C/search/search.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c
-UI="$C/ui/gfx.c $C/ui/app.c $C/ui/font_data.c $C/ui/settings.c $C/qr/qrcodegen.c -I$C/ui/include -I$C/qr"
+UI="$C/ui/gfx.c $C/ui/app.c $C/ui/app_edit.c $C/ui/app_tools.c $C/ui/font_data.c $C/ui/settings.c $C/qr/qrcodegen.c -I$C/ui/include -I$C/qr"
 mkdir -p $B/renders
-ARGS="../../testdata $B/renders" run render render.c $UI $KDBX host_random.c $C/search/search.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c
+ARGS="../../testdata $B/renders" run render render.c $UI $KDBX host_random.c $C/search/search.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c
 ARGS= run test_settings test_settings.c $C/ui/settings.c -I$C/ui/include

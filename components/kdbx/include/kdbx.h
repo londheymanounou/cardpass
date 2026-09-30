@@ -73,6 +73,10 @@ typedef struct kdbx_entry {
 typedef struct kdbx_db kdbx_db;
 
 kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out);
+/* Called ~50 times during every AES-KDF run (unlock, rekey, create): 0..100 %. NULL = off. */
+void kdbx_set_progress(void (*cb)(void *ctx, int pct), void *ctx);
+/* The AES-KDF itself (public for the rounds benchmark when creating a database). */
+void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32]);
 void kdbx_close(kdbx_db *db); /* wipes everything; NULL ok */
 
 const kdbx_entry *kdbx_entries(const kdbx_db *db);

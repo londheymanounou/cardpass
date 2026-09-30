@@ -1,67 +1,35 @@
-/* CardPass screens. Layout: status bar (14 px), content rows, key-hint footer (12 px). */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "app.h"
+/* CardPass core screens: picker, unlock, home/groups/search, entry view, QR.
+ * Layout: status bar (14 px), content rows, key-hint footer (12 px). */
+#include "app_priv.h"
 #include "mbedtls/platform_util.h"
+#include "qrcodegen.h"
 #include "search.h"
 #include "strength.h"
 #include "totp.h"
-#include "qrcodegen.h"
+
 #define QR_SHOW_MS 20000
-#include "ui_icons.h"
 
-#define BAR_H 14
-#define FOOT_H 12
-#define CONTENT_Y BAR_H
-#define CONTENT_H (UI_H - BAR_H - FOOT_H)
-#define PAD 4
-#define LABEL_W 56
-#define REVEAL_MAX 1024
+/* ======================= shared helpers ======================= */
 
-enum { LI_ENTRY, LI_GROUP, LI_FAV, LI_RECENT };
-typedef struct { const void *p; uint8_t type; } list_item;
+int ap_row_h(const app *a) { return F->height + 3; }
+int ap_visible(const app *a) { return CONTENT_H / ap_row_h(a); }
+void ap_wipe(void *p, size_t n) { mbedtls_platform_zeroize(p, n); }
 
-enum { R_USER, R_PASS, R_URL, R_TOTP, R_NOTES, R_FIELD, R_PASSKEY, R_ATT, R_EXPIRY, R_TAGS };
-
-#define T (a->set.theme)
-#define F (a->set.font)
-
-static int row_h(const app *a) { return F->height + 3; }
-static int visible_rows(const app *a) { return CONTENT_H / row_h(a); }
-static void mark(app *a, int y0, int y1)
+void ap_mark(app *a, int y0, int y1)
 {
     if (a->dirty_y1 <= a->dirty_y0) { a->dirty_y0 = y0; a->dirty_y1 = y1; return; }
     if (y0 < a->dirty_y0) a->dirty_y0 = y0;
     if (y1 > a->dirty_y1) a->dirty_y1 = y1;
 }
-static void mark_all(app *a) { mark(a, 0, UI_H); }
-static void mark_row(app *a, int i)
+void ap_mark_all(app *a) { ap_mark(a, 0, UI_H); }
+void ap_mark_row(app *a, int i)
 {
     int r = i - a->top;
-    if (r >= 0 && r < visible_rows(a)) mark(a, CONTENT_Y + r * row_h(a), CONTENT_Y + (r + 1) * row_h(a));
-}
-static void wipe(void *p, size_t n) { mbedtls_platform_zeroize(p, n); }
-
-/* ======================= lists ======================= */
-
-static list_item *items(app *a) { return (list_item *)a->hits; }
-
-static int title_cmp(const void *x, const void *y)
-{
-    const list_item *p = x, *q = y;
-    const char *s = p->type == LI_GROUP ? ((const kdbx_group *)p->p)->name : ((const kdbx_entry *)p->p)->title;
-    const char *t = q->type == LI_GROUP ? ((const kdbx_group *)q->p)->name : ((const kdbx_entry *)q->p)->title;
-    if (p->type != q->type) return p->type == LI_GROUP ? -1 : 1;
-    while (*s && *t) {
-        unsigned c = search_fold(&s), d = search_fold(&t);
-        if (c != d) return c < d ? -1 : 1;
-    }
-    return !!*s - !!*t;
+    if (r >= 0 && r < ap_visible(a)) ap_mark(a, CONTENT_Y + r * ap_row_h(a), CONTENT_Y + (r + 1) * ap_row_h(a));
 }
 
-/* unix seconds -> "YYYY-MM-DD" / "HH:MM" (civil-from-days, no libc time zone code) */
-static void civil(int64_t t, int *y, int *mo, int *d, int *h, int *mi)
+/* unix seconds -> civil date/time (no libc time zone code) */
+void ap_civil(int64_t t, int *y, int *mo, int *d, int *h, int *mi)
 {
     int64_t days = t / 86400, sec = t % 86400;
     if (sec < 0) sec += 86400, days--;
@@ -76,12 +44,51 @@ static void civil(int64_t t, int *y, int *mo, int *d, int *h, int *mi)
     *y = (int)(yoe + era * 400 + (*mo <= 2));
 }
 
-/* Home: favorites, this session's recent entries, then the root group. */
-static void build_group_list(app *a, const kdbx_group *g, bool home)
+void ap_utf8_append(char *buf, int *len, int cap, uint32_t cp)
 {
-    list_item *it = items(a);
+    char t[4];
+    int n = cp < 0x80 ? (t[0] = (char)cp, 1)
+          : cp < 0x800 ? (t[0] = (char)(0xC0 | cp >> 6), t[1] = (char)(0x80 | (cp & 0x3F)), 2)
+          : cp < 0x10000 ? (t[0] = (char)(0xE0 | cp >> 12), t[1] = (char)(0x80 | ((cp >> 6) & 0x3F)), t[2] = (char)(0x80 | (cp & 0x3F)), 3)
+          : (t[0] = (char)(0xF0 | cp >> 18), t[1] = (char)(0x80 | ((cp >> 12) & 0x3F)), t[2] = (char)(0x80 | ((cp >> 6) & 0x3F)), t[3] = (char)(0x80 | (cp & 0x3F)), 4);
+    if (*len + n >= cap) return;
+    memcpy(buf + *len, t, (size_t)n);
+    *len += n;
+    buf[*len] = 0;
+}
+
+void ap_utf8_backspace(char *buf, int *len)
+{
+    while (*len > 0 && ((unsigned char)buf[--*len] & 0xC0) == 0x80) buf[*len] = 0;
+    buf[*len] = 0;
+}
+
+bool ap_printable(uint32_t k) { return k >= 0x20 && k < 0x110000 && k != 0x7F; }
+
+/* ======================= lists ======================= */
+
+list_item *ap_items(app *a) { return (list_item *)a->hits; }
+
+static int title_cmp(const void *x, const void *y)
+{
+    const list_item *p = x, *q = y;
+    const char *s = p->type == LI_GROUP ? ((const kdbx_group *)p->p)->name : ((const kdbx_entry *)p->p)->title;
+    const char *t = q->type == LI_GROUP ? ((const kdbx_group *)q->p)->name : ((const kdbx_entry *)q->p)->title;
+    if (p->type != q->type) return p->type == LI_GROUP ? -1 : 1;
+    while (*s && *t) {
+        unsigned c = search_fold(&s), d = search_fold(&t);
+        if (c != d) return c < d ? -1 : 1;
+    }
+    return !!*s - !!*t;
+}
+
+/* Home: expiry alert, favorites, this session's recent entries, then the root group. */
+void ap_build_group(app *a, const kdbx_group *g, bool home)
+{
+    list_item *it = ap_items(a);
     int n = 0;
     if (home) {
+        if (ap_expiring_count(a)) it[n++] = (list_item){NULL, LI_ALERT};
         const kdbx_group *bin = kdbx_recycle_bin(a->db);
         int start = n;
         for (const kdbx_entry *e = kdbx_entries(a->db); e; e = e->next)
@@ -100,31 +107,60 @@ static void build_group_list(app *a, const kdbx_group *g, bool home)
     a->group = g;
 }
 
-static void build_search(app *a)
+void ap_build_search(app *a)
 {
     search_hit *h = malloc(sizeof *h * (size_t)(a->nentries ? a->nentries : 1));
     int n = h ? (int)search_run(a->db, a->query, a->recent, (size_t)a->nrecent, h, (size_t)a->nentries) : 0;
-    for (int i = 0; i < n; i++) items(a)[i] = (list_item){h[i].e, LI_ENTRY};
+    for (int i = 0; i < n; i++) ap_items(a)[i] = (list_item){h[i].e, LI_ENTRY};
     free(h);
     a->nhits = n;
     a->sel = a->top = 0;
 }
 
-static void scroll_to_sel(app *a)
+void ap_go_home(app *a)
 {
-    int vis = visible_rows(a);
-    if (a->sel < a->top) a->top = a->sel, mark_all(a);
-    if (a->sel >= a->top + vis) a->top = a->sel - vis + 1, mark_all(a);
+    a->scr = SCR_HOME;
+    ap_build_group(a, kdbx_root_group(a->db), true);
+    a->sel = a->top = 0;
+    ap_mark_all(a);
 }
 
-static void move_sel(app *a, int n, int delta)
+static void scroll_to_sel(app *a)
+{
+    int vis = ap_visible(a);
+    if (a->sel < a->top) a->top = a->sel, ap_mark_all(a);
+    if (a->sel >= a->top + vis) a->top = a->sel - vis + 1, ap_mark_all(a);
+}
+
+void ap_move_sel(app *a, int n, int delta)
 {
     if (!n) return;
     int old = a->sel;
     a->sel = (a->sel + delta + n) % n; /* wraps around */
-    mark_row(a, old);
-    mark_row(a, a->sel);
+    ap_mark_row(a, old);
+    ap_mark_row(a, a->sel);
     scroll_to_sel(a);
+}
+
+static void free_lists(app *a)
+{
+    if (a->hits) ap_wipe(a->hits, sizeof(list_item) * (size_t)a->list_cap), free(a->hits);
+    a->hits = NULL;
+    free(a->audit_bits);
+    a->audit_bits = NULL;
+}
+
+bool ap_reindex(app *a)
+{
+    free_lists(a);
+    a->nentries = 0;
+    int ngroups = 0;
+    for (const kdbx_entry *x = kdbx_entries(a->db); x; x = x->next) a->nentries++;
+    for (const kdbx_group *g = kdbx_groups(a->db); g; g = g->next) ngroups++;
+    a->list_cap = a->nentries + ngroups + APP_RECENT + 1;
+    a->hits = malloc(sizeof(list_item) * (size_t)a->list_cap);
+    a->nhits = 0;
+    return a->hits != NULL;
 }
 
 /* ======================= entry view ======================= */
@@ -141,25 +177,33 @@ static void add_row(app *a, uint8_t kind, const kdbx_field *f)
     if (a->nrows < APP_MAX_ROWS) a->rows[a->nrows++] = (app_row){kind, f, NULL, 0, 0};
 }
 
-static void open_entry(app *a, const kdbx_entry *e)
+static const kdbx_field *totp_field(const kdbx_entry *e)
 {
+    const kdbx_field *f;
+    if ((f = kdbx_field_get(e, "otp")) || (f = kdbx_field_get(e, "TimeOtp-Secret-Base32")) ||
+        (f = kdbx_field_get(e, "TimeOtp-Secret")) || (f = kdbx_field_get(e, "TimeOtp-Secret-Hex")) ||
+        (f = kdbx_field_get(e, "TimeOtp-Secret-Base64")))
+        return f;
+    return NULL;
+}
+
+void ap_open_entry(app *a, const kdbx_entry *e)
+{
+    if (a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH || a->scr == SCR_AUDIT || a->scr == SCR_EXPIRY)
+        a->back_scr = a->scr;
     a->entry = e;
     a->nrows = 0;
     a->revealed = false;
-    a->back_scr = a->scr;
     const kdbx_field *f;
     if ((f = kdbx_field_get(e, "UserName")) && f->len) add_row(a, R_USER, f);
     if ((f = kdbx_field_get(e, "Password"))) {
         add_row(a, R_PASS, f);
         char *buf = malloc(REVEAL_MAX);
         a->pw_bits = buf && kdbx_reveal(a->db, f, buf, REVEAL_MAX) == KDBX_OK ? strength_bits(buf) : 0;
-        if (buf) wipe(buf, REVEAL_MAX), free(buf);
+        if (buf) ap_wipe(buf, REVEAL_MAX), free(buf);
     }
     if ((f = kdbx_field_get(e, "URL")) && f->len) add_row(a, R_URL, f);
-    if ((f = kdbx_field_get(e, "otp")) || (f = kdbx_field_get(e, "TimeOtp-Secret-Base32")) ||
-        (f = kdbx_field_get(e, "TimeOtp-Secret")) || (f = kdbx_field_get(e, "TimeOtp-Secret-Hex")) ||
-        (f = kdbx_field_get(e, "TimeOtp-Secret-Base64")))
-        add_row(a, R_TOTP, f);
+    if ((f = totp_field(e))) add_row(a, R_TOTP, f);
     if ((f = kdbx_field_get(e, "KPEX_PASSKEY_RELYING_PARTY"))) add_row(a, R_PASSKEY, f);
     for (size_t i = 0; i < e->nfields; i++)
         if (!hidden_field(e->fields[i].key)) add_row(a, R_FIELD, &e->fields[i]);
@@ -195,80 +239,127 @@ static void open_entry(app *a, const kdbx_entry *e)
 
     a->scr = SCR_ENTRY;
     a->sel = a->top = 0;
-    mark_all(a);
+    ap_mark_all(a);
+}
+
+/* Current code of an entry's TOTP field into out (digits only). */
+bool ap_totp_now(app *a, const kdbx_entry *e, const kdbx_field *f, char *out, size_t n)
+{
+    bool valid, ok;
+    int64_t now = a->p->now(a->p->ctx, &valid);
+    totp t;
+    char *buf = malloc(REVEAL_MAX);
+    if (!f) f = totp_field(e);
+    if (!buf || !f || !valid || n < 11) { free(buf); return false; }
+    ok = kdbx_reveal(a->db, f, buf, REVEAL_MAX) == KDBX_OK;
+    if (ok && !strcmp(f->key, "otp")) ok = totp_from_uri(&t, buf);
+    else if (ok) {
+        totp_init(&t);
+        ok = totp_set_keepass(&t, f->key, buf);
+        for (size_t k = 0; ok && k < e->nfields; k++) {
+            const kdbx_field *x = &e->fields[k];
+            if (!strncmp(x->key, "TimeOtp-", 8) && strncmp(x->key, "TimeOtp-Secret", 14) &&
+                kdbx_reveal(a->db, x, buf, REVEAL_MAX) == KDBX_OK)
+                totp_set_keepass(&t, x->key, buf);
+        }
+    }
+    ap_wipe(buf, REVEAL_MAX);
+    free(buf);
+    if (!ok || !totp_valid(&t)) { totp_wipe(&t); return false; }
+    totp_code(&t, (uint64_t)now, out);
+    a->totp_period = t.period;
+    totp_wipe(&t);
+    return true;
 }
 
 /* ======================= lock / unlock ======================= */
-
-static void free_lists(app *a)
-{
-    if (a->hits) wipe(a->hits, sizeof(list_item) * (size_t)a->list_cap), free(a->hits);
-    a->hits = NULL;
-}
 
 void app_lock(app *a)
 {
     kdbx_close(a->db);
     a->db = NULL;
     free_lists(a);
-    wipe(a->pw, sizeof a->pw);
-    wipe(a->query, sizeof a->query);
-    wipe(a->recent, sizeof a->recent);
-    wipe(a->rows, sizeof a->rows);
-    wipe(a->qr, sizeof a->qr);
+    ap_edit_free(a);
+    ap_gen_free(a);
+    ap_create_free(a);
+    ap_wipe(a->pw, sizeof a->pw);
+    ap_wipe(a->query, sizeof a->query);
+    ap_wipe(a->recent, sizeof a->recent);
+    ap_wipe(a->rows, sizeof a->rows);
+    ap_wipe(a->qr, sizeof a->qr);
     a->pwlen = a->qlen = a->nrecent = a->nrows = 0;
     a->entry = NULL;
     a->group = NULL;
     a->revealed = false;
-    a->ndbs = a->p->list_dbs(a->p->ctx, a->dbs, APP_MAX_DBS);
+    a->progress = -1;
+    a->ndbs = a->p->list_files(a->p->ctx, ".kdbx", a->dbs, APP_MAX_DBS);
+    a->nkeyfiles = a->p->list_files(a->p->ctx, ".keyx", a->keyfiles, APP_MAX_DBS);
+    a->nkeyfiles += a->p->list_files(a->p->ctx, ".key", a->keyfiles + a->nkeyfiles, APP_MAX_DBS - a->nkeyfiles);
+    a->keyfile = 0;
     a->scr = SCR_PICKER;
     a->sel = a->top = 0;
-    mark_all(a);
+    for (int i = 0; i < a->ndbs; i++) /* preselect the last database */
+        if (!strcmp(a->dbs[i], a->cfg.last_db)) a->sel = i;
+    ap_mark_all(a);
+}
+
+void ap_kdf_progress(void *ctx, int pct)
+{
+    app *a = ctx;
+    if (pct == a->progress) return;
+    a->progress = pct;
+    ap_mark(a, CONTENT_Y, UI_H - FOOT_H);
+    a->p->present(a->p->ctx);
 }
 
 static void unlock(app *a)
 {
     kdbx_key k;
-    kdbx_err e = kdbx_key_init(&k, a->pw, (size_t)a->pwlen, NULL);
-    wipe(a->pw, sizeof a->pw);
+    FILE *kf = NULL;
+    char kpath[256];
+    if (a->keyfile) {
+        a->p->path(a->p->ctx, a->keyfiles[a->keyfile - 1], kpath, sizeof kpath);
+        if (!(kf = fopen(kpath, "rb"))) { snprintf(a->msg, sizeof a->msg, "Key file not readable"); ap_mark_all(a); return; }
+    }
+    /* no password typed + key file = key-file-only database */
+    kdbx_err e = kdbx_key_init(&k, a->pwlen || !kf ? a->pw : NULL, (size_t)a->pwlen, kf);
+    if (kf) fclose(kf);
+    ap_wipe(a->pw, sizeof a->pw);
     a->pwlen = 0;
+    a->progress = 0;
+    kdbx_set_progress(ap_kdf_progress, a);
     FILE *f = fopen(a->path, "rb");
     if (!e) e = f ? kdbx_open(f, &k, &a->db) : KDBX_ERR_IO;
     if (f) fclose(f);
+    kdbx_set_progress(NULL, NULL);
     kdbx_key_wipe(&k);
+    a->progress = -1;
     if (e) {
         snprintf(a->msg, sizeof a->msg, "%s", kdbx_strerror(e));
-        mark_all(a);
+        ap_mark_all(a);
         return;
     }
-    a->nentries = 0;
-    int ngroups = 0;
-    for (const kdbx_entry *x = kdbx_entries(a->db); x; x = x->next) a->nentries++;
-    for (const kdbx_group *g = kdbx_groups(a->db); g; g = g->next) ngroups++;
-    a->list_cap = a->nentries + ngroups + APP_RECENT;
-    a->hits = malloc(sizeof(list_item) * (size_t)a->list_cap);
-    if (!a->hits) {
+    if (!ap_reindex(a)) {
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, "Out of memory");
         return;
     }
+    if (strcmp(a->cfg.last_db, a->dbname)) {
+        snprintf(a->cfg.last_db, sizeof a->cfg.last_db, "%s", a->dbname);
+        ap_apply_settings(a);
+    }
     a->msg[0] = 0;
-    a->scr = SCR_HOME;
-    build_group_list(a, kdbx_root_group(a->db), true);
-    a->sel = a->top = 0;
-    mark_all(a);
+    ap_go_home(a);
 }
 
 /* ======================= QR ======================= */
-
-static bool totp_now(app *a, const kdbx_field *f, char *out, size_t n); /* below */
 
 /* Plaintext of an entry-view row (for QR). */
 static bool row_text(app *a, const app_row *r, char *buf, size_t n)
 {
     switch (r->kind) {
-    case R_TOTP: return totp_now(a, r->f, buf, n);
-    case R_NOTES: r = &(app_row){R_FIELD, r->f, NULL, 0, 0}; /* the whole note */ /* fall through */
+    case R_TOTP: return ap_totp_now(a, a->entry, r->f, buf, n);
+    case R_NOTES: /* the whole note */
     case R_USER: case R_PASS: case R_URL: case R_FIELD: case R_PASSKEY:
         return kdbx_reveal(a->db, r->f, buf, n) == KDBX_OK && buf[0];
     default: return false;
@@ -281,12 +372,12 @@ static void show_qr(app *a, const app_row *r)
     uint8_t *tmp = malloc(APP_QR_BYTES);
     bool ok = buf && tmp && row_text(a, r, buf, REVEAL_MAX) &&
               qrcodegen_encodeText(buf, tmp, a->qr, qrcodegen_Ecc_LOW, 1, APP_QR_MAX_VERSION, qrcodegen_Mask_AUTO, true);
-    if (buf) wipe(buf, REVEAL_MAX), free(buf);
-    if (tmp) wipe(tmp, APP_QR_BYTES), free(tmp);
+    if (buf) ap_wipe(buf, REVEAL_MAX), free(buf);
+    if (tmp) ap_wipe(tmp, APP_QR_BYTES), free(tmp);
     if (!ok) {
-        wipe(a->qr, sizeof a->qr);
+        ap_wipe(a->qr, sizeof a->qr);
         snprintf(a->msg, sizeof a->msg, "Too long for a QR code");
-        mark_all(a);
+        ap_mark_all(a);
         return;
     }
     static const char *const labels[] = {[R_USER] = "User", [R_PASS] = "Password", [R_URL] = "URL", [R_TOTP] = "TOTP",
@@ -294,80 +385,61 @@ static void show_qr(app *a, const app_row *r)
     snprintf(a->qr_label, sizeof a->qr_label, "%s", r->kind == R_FIELD ? r->f->key : labels[r->kind]);
     a->scr = SCR_QR;
     a->qr_until = a->now_ms + QR_SHOW_MS;
-    mark_all(a);
+    ap_mark_all(a);
 }
 
 static void close_qr(app *a)
 {
-    wipe(a->qr, sizeof a->qr);
+    ap_wipe(a->qr, sizeof a->qr);
     a->scr = SCR_ENTRY;
-    mark_all(a);
+    ap_mark_all(a);
 }
 
 /* ======================= input ======================= */
 
-static void utf8_append(char *buf, int *len, int cap, uint32_t cp)
-{
-    char t[4];
-    int n = cp < 0x80 ? (t[0] = (char)cp, 1)
-          : cp < 0x800 ? (t[0] = (char)(0xC0 | cp >> 6), t[1] = (char)(0x80 | (cp & 0x3F)), 2)
-          : cp < 0x10000 ? (t[0] = (char)(0xE0 | cp >> 12), t[1] = (char)(0x80 | ((cp >> 6) & 0x3F)), t[2] = (char)(0x80 | (cp & 0x3F)), 3)
-          : (t[0] = (char)(0xF0 | cp >> 18), t[1] = (char)(0x80 | ((cp >> 12) & 0x3F)), t[2] = (char)(0x80 | ((cp >> 6) & 0x3F)), t[3] = (char)(0x80 | (cp & 0x3F)), 4);
-    if (*len + n >= cap) return;
-    memcpy(buf + *len, t, (size_t)n);
-    *len += n;
-    buf[*len] = 0;
-}
-
-static void utf8_backspace(char *buf, int *len)
-{
-    while (*len > 0 && ((unsigned char)buf[--*len] & 0xC0) == 0x80) buf[*len] = 0;
-    buf[*len] = 0;
-}
-
-static bool printable(uint32_t k) { return k >= 0x20 && k < 0x110000 && k != 0x7F; }
-
 static void open_item(app *a, const list_item *it)
 {
-    if (it->type == LI_GROUP) {
+    if (it->type == LI_ALERT) {
+        ap_expiry_open(a);
+    } else if (it->type == LI_GROUP) {
         a->scr = SCR_GROUP;
-        build_group_list(a, it->p, false);
+        ap_build_group(a, it->p, false);
         a->sel = a->top = 0;
-        mark_all(a);
+        ap_mark_all(a);
     } else {
-        open_entry(a, it->p);
+        ap_open_entry(a, it->p);
     }
 }
 
 static void go_back(app *a)
 {
     switch (a->scr) {
-    case SCR_UNLOCK: a->scr = SCR_PICKER; wipe(a->pw, sizeof a->pw); a->pwlen = 0; a->msg[0] = 0; break;
+    case SCR_UNLOCK: a->scr = SCR_PICKER; ap_wipe(a->pw, sizeof a->pw); a->pwlen = 0; a->msg[0] = 0; break;
     case SCR_ENTRY:
         a->revealed = false;
         a->scr = a->back_scr;
-        if (a->scr == SCR_SEARCH) build_search(a);
-        else build_group_list(a, a->scr == SCR_HOME ? kdbx_root_group(a->db) : a->entry->group, a->scr == SCR_HOME);
+        if (a->scr == SCR_SEARCH) ap_build_search(a);
+        else if (a->scr == SCR_AUDIT) { ap_audit_open(a); return; }
+        else if (a->scr == SCR_EXPIRY) { ap_expiry_open(a); return; }
+        else if (a->scr == SCR_GROUP) ap_build_group(a, a->entry->group, false);
+        else { ap_go_home(a); return; }
         a->sel = a->top = 0;
         break;
     case SCR_SEARCH:
-        wipe(a->query, sizeof a->query);
+        ap_wipe(a->query, sizeof a->query);
         a->qlen = 0;
-        a->scr = SCR_HOME;
-        build_group_list(a, kdbx_root_group(a->db), true);
-        a->sel = a->top = 0;
-        break;
+        ap_go_home(a);
+        return;
     case SCR_GROUP: {
         const kdbx_group *parent = a->group->parent;
-        bool home = parent == kdbx_root_group(a->db) || !parent;
-        a->scr = home ? SCR_HOME : SCR_GROUP;
-        build_group_list(a, home ? kdbx_root_group(a->db) : parent, home);
+        if (parent == kdbx_root_group(a->db) || !parent) { ap_go_home(a); return; }
+        ap_build_group(a, parent, false);
         a->sel = a->top = 0;
         break;
     }
     default: break;
     }
-    mark_all(a);
+    ap_mark_all(a);
 }
 
 void app_key(app *a, uint32_t key, bool down)
@@ -377,59 +449,81 @@ void app_key(app *a, uint32_t key, bool down)
     a->last_input_ms = a->now_ms;
 
     if (a->scr == SCR_ENTRY && (k == 'r' || k == 'R') && !fn) {
-        bool r = a->set.reveal_hold ? down : (down ? !a->revealed : a->revealed);
-        if (r != a->revealed) a->revealed = r, mark_row(a, a->sel);
+        bool r = !a->cfg.reveal_toggle ? down : (down ? !a->revealed : a->revealed);
+        if (r != a->revealed) a->revealed = r, ap_mark_row(a, a->sel);
         return;
     }
     if (!down) return;
     if (fn && (k == 'l' || k == 'L') && a->db) { app_lock(a); return; } /* fn+L: lock now */
+    if (k == K_TAB && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
+                       a->scr == SCR_ENTRY)) {
+        ap_menu_open(a);
+        return;
+    }
+    if (k == '?' && a->scr != SCR_UNLOCK && a->scr != SCR_EDIT && a->scr != SCR_SEARCH && a->scr != SCR_CREATE &&
+        a->scr != SCR_HELP && a->scr != SCR_QR) {
+        a->menu_back = a->scr;
+        a->scr = SCR_HELP;
+        ap_mark_all(a);
+        return;
+    }
 
     switch (a->scr) {
     case SCR_PICKER:
-        if (k == K_UP) move_sel(a, a->ndbs, -1);
-        else if (k == K_DOWN) move_sel(a, a->ndbs, 1);
+        if (k == K_UP) ap_move_sel(a, a->ndbs, -1);
+        else if (k == K_DOWN) ap_move_sel(a, a->ndbs, 1);
         else if (k == K_ENTER && a->ndbs) {
             snprintf(a->dbname, sizeof a->dbname, "%s", a->dbs[a->sel]);
-            a->p->db_path(a->p->ctx, a->dbname, a->path, sizeof a->path);
+            a->p->path(a->p->ctx, a->dbname, a->path, sizeof a->path);
             a->scr = SCR_UNLOCK;
             a->msg[0] = 0;
-            mark_all(a);
+            ap_mark_all(a);
         }
         break;
     case SCR_UNLOCK: /* ` is a password character here: fn+` goes back */
         if (k == K_ESC) go_back(a);
         else if (k == K_ENTER) unlock(a);
-        else if (k == K_BACKSPACE) utf8_backspace(a->pw, &a->pwlen), mark_all(a);
-        else if (printable(k) && !fn) utf8_append(a->pw, &a->pwlen, sizeof a->pw, k), a->msg[0] = 0, mark_all(a);
+        else if (k == K_TAB) a->keyfile = (a->keyfile + 1) % (a->nkeyfiles + 1), ap_mark_all(a);
+        else if (k == K_BACKSPACE) ap_utf8_backspace(a->pw, &a->pwlen), ap_mark_all(a);
+        else if (ap_printable(k) && !fn) ap_utf8_append(a->pw, &a->pwlen, sizeof a->pw, k), a->msg[0] = 0, ap_mark_all(a);
         break;
     case SCR_HOME:
     case SCR_GROUP:
     case SCR_SEARCH:
-        if (k == K_UP) move_sel(a, a->nhits, -1);
-        else if (k == K_DOWN) move_sel(a, a->nhits, 1);
-        else if (k == K_ENTER && a->nhits) open_item(a, &items(a)[a->sel]);
+        if (a->msg[0]) a->msg[0] = 0, ap_mark(a, UI_H - FOOT_H - 14, UI_H - FOOT_H);
+        if (k == K_UP) ap_move_sel(a, a->nhits, -1);
+        else if (k == K_DOWN) ap_move_sel(a, a->nhits, 1);
+        else if (k == K_ENTER && a->nhits) open_item(a, &ap_items(a)[a->sel]);
         else if (k == K_ESC || (k == '`' && a->scr != SCR_SEARCH)) go_back(a);
         else if (k == K_BACKSPACE && a->scr == SCR_SEARCH) {
-            utf8_backspace(a->query, &a->qlen);
+            ap_utf8_backspace(a->query, &a->qlen);
             if (!a->qlen) go_back(a);
-            else build_search(a), mark_all(a);
-        } else if (printable(k) && !fn && (k != ' ' || a->scr == SCR_SEARCH)) {
-            if (a->scr != SCR_SEARCH) a->back_scr = a->scr, a->scr = SCR_SEARCH, a->qlen = 0, a->query[0] = 0;
-            utf8_append(a->query, &a->qlen, sizeof a->query, k);
-            build_search(a);
-            mark_all(a);
+            else ap_build_search(a), ap_mark_all(a);
+        } else if (ap_printable(k) && !fn && (k != ' ' || a->scr == SCR_SEARCH)) {
+            if (a->scr != SCR_SEARCH) a->scr = SCR_SEARCH, a->qlen = 0, a->query[0] = 0;
+            ap_utf8_append(a->query, &a->qlen, sizeof a->query, k);
+            ap_build_search(a);
+            ap_mark_all(a);
         }
         break;
     case SCR_ENTRY:
         a->msg[0] = 0;
-        if (k == K_UP) { a->revealed = false; move_sel(a, a->nrows, -1); }
-        else if (k == K_DOWN) { a->revealed = false; move_sel(a, a->nrows, 1); }
+        ap_mark(a, UI_H - FOOT_H - 14, UI_H);
+        if (k == K_UP) { a->revealed = false; ap_move_sel(a, a->nrows, -1); }
+        else if (k == K_DOWN) { a->revealed = false; ap_move_sel(a, a->nrows, 1); }
         else if (k == K_ESC || k == '`') go_back(a);
         else if ((k == 'q' || k == 'Q') && a->nrows) show_qr(a, &a->rows[a->sel]);
+        else ap_entry_key(a, k, fn);
         break;
-    case SCR_QR: /* any key clears it */
-        close_qr(a);
-        break;
+    case SCR_QR: close_qr(a); break; /* any key clears it */
+    case SCR_MENU: ap_menu_key(a, k, fn); break;
+    case SCR_EDIT: ap_edit_key(a, k, fn); break;
+    case SCR_GEN: ap_gen_key(a, k, fn); break;
+    case SCR_SETTINGS: ap_settings_key(a, k, fn); break;
+    case SCR_AUDIT: case SCR_EXPIRY: ap_report_key(a, k, fn); break;
+    case SCR_CONFIRM: ap_confirm_key(a, k, fn); break;
+    case SCR_CREATE: ap_create_key(a, k, fn); break;
+    case SCR_HELP: a->scr = a->menu_back; ap_mark_all(a); break;
     }
 }
 
@@ -438,24 +532,27 @@ void app_tick(app *a, uint32_t now_ms)
     uint32_t prev = a->now_ms;
     a->now_ms = now_ms;
     if (a->scr == SCR_QR && (int32_t)(now_ms - a->qr_until) >= 0) close_qr(a);
-    if (a->db && a->set.autolock_ms && now_ms - a->last_input_ms > a->set.autolock_ms) {
+    uint32_t lock_ms = (uint32_t)a->cfg.autolock_s * 1000u;
+    if (a->db && lock_ms && now_ms - a->last_input_ms > lock_ms) {
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, "Locked after inactivity");
         return;
     }
     if (prev / 1000 != now_ms / 1000) {
-        mark(a, 0, BAR_H); /* clock */
+        ap_mark(a, 0, BAR_H); /* clock */
         if (a->scr == SCR_ENTRY)
             for (int i = 0; i < a->nrows; i++)
-                if (a->rows[i].kind == R_TOTP) mark_row(a, i);
+                if (a->rows[i].kind == R_TOTP) ap_mark_row(a, i);
     }
 }
 
-void app_init(app *a, const app_platform *p, const app_settings *s)
+void app_init(app *a, const app_platform *p, const cp_settings *cfg)
 {
     memset(a, 0, sizeof *a);
     a->p = p;
-    a->set = *s;
+    a->cfg = *cfg;
+    a->theme = cfg->light ? &ui_light : &ui_dark;
+    a->font = cfg->large_font ? &ui_font_large : &ui_font_small;
     app_lock(a);
     a->msg[0] = 0;
 }
@@ -471,7 +568,7 @@ bool app_dirty(app *a, int *y0, int *y1)
 
 /* ======================= drawing ======================= */
 
-static void draw_bar(app *a, ui_strip *s, const char *title)
+void ap_draw_bar(app *a, ui_strip *s, const char *title)
 {
     ui_fill(s, 0, 0, UI_W, BAR_H, T->bar_bg);
     char right[48] = "";
@@ -479,7 +576,7 @@ static void draw_bar(app *a, ui_strip *s, const char *title)
     int64_t now = a->p->now(a->p->ctx, &valid);
     if (valid) {
         int y, mo, d, h, mi;
-        civil(now + a->set.tz_minutes * 60, &y, &mo, &d, &h, &mi);
+        ap_civil(now + a->cfg.tz_minutes * 60, &y, &mo, &d, &h, &mi);
         snprintf(right, sizeof right, "%02d:%02d ", h, mi);
     }
     int bat = a->p->battery(a->p->ctx);
@@ -493,17 +590,17 @@ static void draw_bar(app *a, ui_strip *s, const char *title)
     ui_text(s, &ui_font_small, PAD, 1, title, T->bar_fg, UI_W - 3 * PAD - rw);
 }
 
-static void draw_footer(app *a, ui_strip *s, const char *hint)
+void ap_draw_footer(app *a, ui_strip *s, const char *hint)
 {
     ui_fill(s, 0, UI_H - FOOT_H, UI_W, FOOT_H, T->bg);
     ui_text(s, &ui_font_small, PAD, UI_H - FOOT_H, hint, T->dim, UI_W - 2 * PAD);
 }
 
 /* One list row: icon, text, dim right-aligned note. */
-static void draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, const char *text, const char *right,
-                     uint16_t right_c)
+void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, const char *text, const char *right,
+                 uint16_t right_c)
 {
-    int y = CONTENT_Y + (i - a->top) * row_h(a), h = row_h(a);
+    int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
     if (y + h <= s->y0 || y >= s->y0 + s->h) return;
     bool sel = i == a->sel;
     ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
@@ -515,68 +612,101 @@ static void draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon
     if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, y + (h - ui_font_small.height) / 2, right, right_c, rw);
 }
 
-static void draw_scrollbar(app *a, ui_strip *s, int n)
+void ap_draw_scrollbar(app *a, ui_strip *s, int n)
 {
-    int vis = visible_rows(a);
+    int vis = ap_visible(a);
     if (n <= vis) return;
     int h = CONTENT_H * vis / n, y = CONTENT_Y + (CONTENT_H - h) * a->top / (n - vis);
     ui_fill(s, UI_W - 2, y, 2, h < 4 ? 4 : h, T->dim);
 }
 
-static void draw_list(app *a, ui_strip *s)
+void ap_draw_list(app *a, ui_strip *s)
 {
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-    int vis = visible_rows(a);
+    int vis = ap_visible(a);
     for (int i = a->top; i < a->nhits && i < a->top + vis; i++) {
-        const list_item *it = &items(a)[i];
-        if (it->type == LI_GROUP) {
+        const list_item *it = &ap_items(a)[i];
+        if (it->type == LI_ALERT) {
+            char t[48];
+            snprintf(t, sizeof t, "%d expired or expiring", ap_expiring_count(a));
+            ap_draw_row(a, s, i, ICON_WARNING, T->warn, t, NULL, 0);
+        } else if (it->type == LI_GROUP) {
             const kdbx_group *g = it->p;
-            draw_row(a, s, i, ICON_FOLDER, T->accent, g->name, NULL, 0);
+            ap_draw_row(a, s, i, ICON_FOLDER, T->accent, g->name, NULL, 0);
         } else {
             const kdbx_entry *e = it->p;
             const char *icon = it->type == LI_FAV ? ICON_STAR : it->type == LI_RECENT ? ICON_CLOCK : ICON_KEY;
-            draw_row(a, s, i, icon, it->type == LI_ENTRY ? T->dim : T->accent, *e->title ? e->title : "(no title)",
-                     e->username, T->dim);
+            ap_draw_row(a, s, i, icon, it->type == LI_ENTRY ? T->dim : T->accent, *e->title ? e->title : "(no title)",
+                        e->username, T->dim);
         }
     }
     if (!a->nhits)
         ui_text(s, F, PAD * 2, CONTENT_Y + 8, a->scr == SCR_SEARCH ? "No match" : "Empty group", T->dim, UI_W);
-    draw_scrollbar(a, s, a->nhits);
+    ap_draw_scrollbar(a, s, a->nhits);
+    ap_draw_toast(a, s);
 }
 
-/* Current code of a TOTP row into out (digits only). */
-static bool totp_now(app *a, const kdbx_field *f, char *out, size_t n)
+/* One-line message (saved, typed, errors) above the footer until the next key. */
+void ap_draw_toast(app *a, ui_strip *s)
 {
-    bool valid, ok;
-    int64_t now = a->p->now(a->p->ctx, &valid);
-    totp t;
-    char *buf = malloc(REVEAL_MAX);
-    if (!buf || !valid || n < 11) { free(buf); return false; }
-    ok = kdbx_reveal(a->db, f, buf, REVEAL_MAX) == KDBX_OK;
-    if (ok && !strcmp(f->key, "otp")) ok = totp_from_uri(&t, buf);
-    else if (ok) {
-        totp_init(&t);
-        ok = totp_set_keepass(&t, f->key, buf);
-        for (size_t k = 0; ok && k < a->entry->nfields; k++) {
-            const kdbx_field *x = &a->entry->fields[k];
-            if (!strncmp(x->key, "TimeOtp-", 8) && strncmp(x->key, "TimeOtp-Secret", 14) &&
-                kdbx_reveal(a->db, x, buf, REVEAL_MAX) == KDBX_OK)
-                totp_set_keepass(&t, x->key, buf);
+    if (!a->msg[0]) return;
+    int w = ui_text_width(&ui_font_small, a->msg) + 8;
+    if (w > UI_W - 2 * PAD) w = UI_W - 2 * PAD;
+    ui_fill(s, UI_W - w - PAD, UI_H - FOOT_H - 14, w, 13, T->bar_bg);
+    ui_text(s, &ui_font_small, UI_W - w - PAD + 4, UI_H - FOOT_H - 14, a->msg, T->warn, w - 8);
+}
+
+/* Text box; cursor = byte offset or -1. Long text scrolls so the cursor stays visible. */
+void ap_draw_field(app *a, ui_strip *s, int x, int y, int w, int fh, const char *text, bool masked, int cursor)
+{
+
+    ui_fill(s, x, y, w, fh, T->field_bg);
+    ui_fill(s, x, y + fh - 2, w, 2, cursor >= 0 ? T->accent : T->dim);
+    char shown[3 * 64 + 1];
+    const char *t = text;
+    int cpos = cursor;
+    if (masked) {
+        int n = 0, cn = 0;
+        for (const char *p = text; *p && n < 64;) {
+            if (p - text < cursor) cn++;
+            ui_utf8_next(&p);
+            n++;
         }
+        shown[0] = 0;
+        for (int i = 0; i < n; i++) strcat(shown, "\xE2\x80\xA2");
+        t = shown;
+        cpos = cursor >= 0 ? cn * 3 : -1;
     }
-    wipe(buf, REVEAL_MAX);
-    free(buf);
-    if (!ok || !totp_valid(&t)) { totp_wipe(&t); return false; }
-    totp_code(&t, (uint64_t)now, out);
-    a->totp_period = t.period;
-    totp_wipe(&t);
-    return true;
+    /* scroll: drop leading characters until the cursor fits */
+    int inner = w - 8;
+    char head[512];
+    while (cpos > 0) {
+        int n = cpos < (int)sizeof head - 1 ? cpos : (int)sizeof head - 1;
+        memcpy(head, t, (size_t)n);
+        head[n] = 0;
+        if (ui_text_width(F, head) <= inner - 4) break;
+        const char *q = t;
+        ui_utf8_next(&q);
+        cpos -= (int)(q - t);
+        t = q;
+    }
+    int tw = ui_text(s, F, x + 4, y + 3, t, T->fg, inner);
+    if (cursor >= 0) {
+        int n = cpos < (int)sizeof head - 1 ? cpos : (int)sizeof head - 1;
+        memcpy(head, t, (size_t)n);
+        head[n] = 0;
+        int cx = x + 4 + ui_text_width(F, head);
+        if (cx > x + 4 + tw) cx = x + 4 + tw;
+        ui_fill(s, cx, y + 2, 2, F->height + 2, T->accent);
+    }
+    ap_wipe(shown, sizeof shown);
+    ap_wipe(head, sizeof head);
 }
 
 static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
 {
     const app_row *r = &a->rows[i];
-    int y = CONTENT_Y + (i - a->top) * row_h(a), h = row_h(a);
+    int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
     if (y + h <= s->y0 || y >= s->y0 + s->h) return;
     bool sel = i == a->sel, reveal = sel && a->revealed;
     ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
@@ -594,8 +724,8 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
         label = "Pass";
         if (!r->f->len) { val = "(empty)"; vc = T->dim; break; }
         masked = true;
-        snprintf(right, sizeof right, "%s %.0f bits", a->pw_bits >= 64 ? "Strong" : "Weak", a->pw_bits);
-        rc = a->pw_bits >= 64 ? T->ok : T->warn;
+        snprintf(right, sizeof right, "%s %.0f bits", a->pw_bits >= a->cfg.weak_bits ? "Strong" : "Weak", a->pw_bits);
+        rc = a->pw_bits >= a->cfg.weak_bits ? T->ok : T->warn;
         break;
     case R_FIELD: label = r->f->key; val = (const char *)r->f->value; masked = r->f->stream_off != KDBX_PLAIN; break;
     case R_NOTES:
@@ -609,17 +739,15 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
         label = "TOTP";
         bool valid;
         int64_t now = a->p->now(a->p->ctx, &valid);
-        int per = 30, rem = 0;
         if (!valid) { val = "time not set"; vc = T->warn; break; }
-        if (!totp_now(a, r->f, buf, REVEAL_MAX)) { val = "invalid TOTP settings"; vc = T->danger; break; }
+        if (!ap_totp_now(a, a->entry, r->f, buf, REVEAL_MAX)) { val = "invalid TOTP settings"; vc = T->danger; break; }
         size_t cl = strlen(buf);
         if (cl == 6 || cl == 8) { /* 123 456 */
             memmove(buf + cl / 2 + 1, buf + cl / 2, cl / 2 + 1);
             buf[cl / 2] = ' ';
         }
         val = buf;
-        per = a->totp_period ? a->totp_period : 30;
-        rem = per - (int)(now % per);
+        int per = a->totp_period ? a->totp_period : 30, rem = per - (int)(now % per);
         snprintf(right, sizeof right, "%ds", rem);
         rc = rem <= 5 ? T->danger : T->dim;
         int bw = 40, bx = UI_W - PAD - bw;
@@ -637,7 +765,7 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
     case R_EXPIRY: {
         label = "Expires";
         int yy, mo, d, hh, mi;
-        civil(a->entry->expiry, &yy, &mo, &d, &hh, &mi);
+        ap_civil(a->entry->expiry, &yy, &mo, &d, &hh, &mi);
         snprintf(buf, 32, "%04d-%02d-%02d", yy, mo, d);
         val = buf;
         bool valid;
@@ -650,99 +778,122 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
     if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, sy - (r->kind == R_TOTP ? 1 : 0), right, rc, rw);
     int maxw = vw - (rw ? rw + 6 : 0);
     if (masked && !reveal) {
-        ui_text(s, F, vx, ty, "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2", vc, maxw);
+        ui_text(s, F, vx, ty, U_BULLETS, vc, maxw);
     } else if (masked) {
         if (kdbx_reveal(a->db, r->f, buf, REVEAL_MAX) == KDBX_OK) ui_text(s, F, vx, ty, buf, T->accent, maxw);
         else ui_text(s, F, vx, ty, "(too long to show)", T->dim, maxw);
-        wipe(buf, REVEAL_MAX);
+        ap_wipe(buf, REVEAL_MAX);
     } else {
         ui_text(s, F, vx, ty, val, vc, maxw);
     }
+}
+
+static void draw_qr(app *a, ui_strip *s)
+{
+    const uint16_t white = 0xFFFF, black = 0; /* always black on white so phones can scan it */
+    int n = qrcodegen_getSize(a->qr), scale = UI_H / (n + 4), oy = (UI_H - n * scale) / 2, ox = oy; /* >= 2-module quiet zone */
+    ui_fill(s, 0, 0, UI_W, UI_H, white);
+    for (int yy = 0; yy < n; yy++) {
+        int py = oy + yy * scale;
+        if (py + scale <= s->y0 || py >= s->y0 + s->h) continue;
+        for (int xx = 0; xx < n; xx++)
+            if (qrcodegen_getModule(a->qr, xx, yy)) ui_fill(s, ox + xx * scale, py, scale, scale, black);
+    }
+    int tx = ox + n * scale + 8;
+    ui_text(s, &ui_font_small, tx, 20, a->qr_label, black, UI_W - tx - 2);
+    ui_text(s, &ui_font_small, tx, UI_H - 28, "any key", RGB565(90, 90, 90), UI_W - tx - 2);
+    ui_text(s, &ui_font_small, tx, UI_H - 15, "to close", RGB565(90, 90, 90), UI_W - tx - 2);
+}
+
+static void draw_unlock(app *a, ui_strip *s)
+{
+    ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
+    if (a->progress >= 0) { /* KDF running */
+        ui_text(s, F, PAD * 2, CONTENT_Y + 24, "Unlocking\xE2\x80\xA6", T->fg, UI_W);
+        int bw = UI_W - PAD * 4, by = CONTENT_Y + 50;
+        ui_fill(s, PAD * 2, by, bw, 6, T->field_bg);
+        ui_fill(s, PAD * 2, by, bw * a->progress / 100, 6, T->accent);
+        return;
+    }
+    ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 6, "Master password", T->dim, UI_W);
+    int fy = CONTENT_Y + 20;
+    ap_draw_field(a, s, PAD * 2, fy, UI_W - PAD * 4, F->height + 6, a->pw, true, a->pwlen);
+    char kf[96];
+    snprintf(kf, sizeof kf, "%s Key file: %s", ICON_FILE, a->keyfile ? a->keyfiles[a->keyfile - 1] : "none");
+    ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 12, kf, a->keyfile ? T->accent : T->dim, UI_W - PAD * 4);
+    if (a->msg[0]) ui_text(s, F, PAD * 2, fy + F->height + 30, a->msg, T->danger, UI_W - PAD * 4);
 }
 
 void app_draw(app *a, ui_strip *s)
 {
     char title[96];
     const char *hint = "";
+    if (a->scr == SCR_QR) { draw_qr(a, s); return; }
     switch (a->scr) {
     case SCR_PICKER: snprintf(title, sizeof title, "CardPass"); break;
     case SCR_UNLOCK: snprintf(title, sizeof title, "Unlock %s", a->dbname); break;
-    case SCR_HOME: snprintf(title, sizeof title, "%s", a->dbname); break;
     case SCR_GROUP: snprintf(title, sizeof title, "%s %s", ICON_FOLDER_OPEN, a->group->name); break;
-    case SCR_SEARCH: snprintf(title, sizeof title, "%s", a->dbname); break;
     case SCR_ENTRY: snprintf(title, sizeof title, "%s %s", ICON_KEY, a->entry->title); break;
-    default: title[0] = 0;
+    case SCR_MENU: snprintf(title, sizeof title, "Menu"); break;
+    case SCR_EDIT: snprintf(title, sizeof title, "Edit entry"); break;
+    case SCR_GEN: snprintf(title, sizeof title, "Generator"); break;
+    case SCR_SETTINGS: snprintf(title, sizeof title, "%s Settings", ICON_COG); break;
+    case SCR_AUDIT: snprintf(title, sizeof title, "Password audit"); break;
+    case SCR_EXPIRY: snprintf(title, sizeof title, "%s Expiring", ICON_CLOCK); break;
+    case SCR_CREATE: snprintf(title, sizeof title, "New database"); break;
+    case SCR_HELP: snprintf(title, sizeof title, "Keys"); break;
+    default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
     }
-    if (a->scr == SCR_QR) { /* always black on white, whole panel, so phones can scan it */
-        const uint16_t white = 0xFFFF, black = 0;
-        int n = qrcodegen_getSize(a->qr), scale = UI_H / (n + 4), oy = (UI_H - n * scale) / 2, ox = oy; /* >= 2-module quiet zone */
-        ui_fill(s, 0, 0, UI_W, UI_H, white);
-        for (int yy = 0; yy < n; yy++) {
-            int py = oy + yy * scale;
-            if (py + scale <= s->y0 || py >= s->y0 + s->h) continue;
-            for (int xx = 0; xx < n; xx++)
-                if (qrcodegen_getModule(a->qr, xx, yy)) ui_fill(s, ox + xx * scale, py, scale, scale, black);
-        }
-        int tx = ox + n * scale + 8;
-        ui_text(s, &ui_font_small, tx, 20, a->qr_label, black, UI_W - tx - 2);
-        ui_text(s, &ui_font_small, tx, UI_H - 28, "any key", RGB565(90, 90, 90), UI_W - tx - 2);
-        ui_text(s, &ui_font_small, tx, UI_H - 15, "to close", RGB565(90, 90, 90), UI_W - tx - 2);
-        return;
-    }
-    if (s->y0 < BAR_H) draw_bar(a, s, title);
+    if (s->y0 < BAR_H) ap_draw_bar(a, s, title);
 
     char *buf = malloc(REVEAL_MAX);
     if (!buf) return;
     switch (a->scr) {
     case SCR_PICKER:
         ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-        for (int i = a->top; i < a->ndbs && i < a->top + visible_rows(a); i++)
-            draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
+        for (int i = a->top; i < a->ndbs && i < a->top + ap_visible(a); i++)
+            ap_draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
         if (!a->ndbs) ui_text(s, F, PAD * 2, CONTENT_Y + 8, "No .kdbx files on the SD card", T->dim, UI_W);
         if (a->msg[0]) ui_text(s, &ui_font_small, PAD * 2, UI_H - FOOT_H - 13, a->msg, T->warn, UI_W);
-        hint = "\xE2\x86\x91\xE2\x86\x93 choose  \xE2\x86\xB5 open";
+        hint = U_UPDOWN " choose  " U_ENTER " open  tab menu";
         break;
-    case SCR_UNLOCK: {
-        ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 8, "Master password", T->dim, UI_W);
-        int fy = CONTENT_Y + 24, fh = F->height + 8;
-        ui_fill(s, PAD * 2, fy, UI_W - PAD * 4, fh, T->field_bg);
-        ui_fill(s, PAD * 2, fy + fh - 2, UI_W - PAD * 4, 2, T->accent);
-        int n = 0;
-        for (const char *p = a->pw; *p;) ui_utf8_next(&p), n++;
-        char dots[3 * 40 + 1] = "";
-        for (int i = 0; i < n && i < 40; i++) strcat(dots, "\xE2\x80\xA2");
-        int w = ui_text(s, F, PAD * 3, fy + 4, dots, T->fg, UI_W - PAD * 8);
-        ui_fill(s, PAD * 3 + w + 1, fy + 3, 2, F->height + 2, T->accent); /* cursor */
-        if (a->msg[0]) ui_text(s, F, PAD * 2, fy + fh + 8, a->msg, T->danger, UI_W - PAD * 4);
-        hint = "\xE2\x86\xB5 unlock  fn+` back";
+    case SCR_UNLOCK:
+        draw_unlock(a, s);
+        hint = a->nkeyfiles ? U_ENTER " unlock  tab key file  fn+` back" : U_ENTER " unlock  fn+` back";
         break;
-    }
     case SCR_HOME:
     case SCR_GROUP:
-        draw_list(a, s);
-        hint = a->scr == SCR_HOME ? "type to search  \xE2\x86\xB5 open  fn+L lock" : "type to search  \xE2\x86\xB5 open  ` back";
+        ap_draw_list(a, s);
+        hint = "type to search  " U_ENTER " open  tab menu";
         break;
     case SCR_SEARCH: {
-        draw_list(a, s);
+        ap_draw_list(a, s);
         snprintf(title, sizeof title, "%s %s", ICON_SEARCH, a->query);
         if (s->y0 < BAR_H) { /* query replaces the title */
             ui_fill(s, 0, 0, UI_W / 2 + 40, BAR_H, T->bar_bg);
             int w = ui_text(s, &ui_font_small, PAD, 1, title, T->accent, UI_W / 2 + 30);
             ui_fill(s, PAD + w + 1, 2, 1, 10, T->accent);
         }
-        hint = "\xE2\x86\x91\xE2\x86\x93 choose  \xE2\x86\xB5 open  fn+` clear";
+        hint = U_UPDOWN " choose  " U_ENTER " open  fn+` clear";
         break;
     }
     case SCR_ENTRY:
         ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-        for (int i = a->top; i < a->nrows && i < a->top + visible_rows(a); i++) draw_entry_row(a, s, i, buf);
-        draw_scrollbar(a, s, a->nrows);
-        if (a->msg[0]) ui_text(s, &ui_font_small, UI_W / 2, UI_H - FOOT_H - 13, a->msg, T->warn, UI_W / 2 - PAD);
-        hint = a->set.reveal_hold ? "hold R reveal  Q qr  ` back" : "R reveal  Q qr  ` back";
+        for (int i = a->top; i < a->nrows && i < a->top + ap_visible(a); i++) draw_entry_row(a, s, i, buf);
+        ap_draw_scrollbar(a, s, a->nrows);
+        ap_draw_toast(a, s);
+        hint = U_ENTER " type  A auto  E edit  Q qr  ? keys";
         break;
+    case SCR_MENU: ap_menu_draw(a, s, &hint); break;
+    case SCR_EDIT: ap_edit_draw(a, s, &hint); break;
+    case SCR_GEN: ap_gen_draw(a, s, &hint); break;
+    case SCR_SETTINGS: ap_settings_draw(a, s, &hint); break;
+    case SCR_AUDIT: case SCR_EXPIRY: ap_report_draw(a, s, &hint); break;
+    case SCR_CONFIRM: ap_confirm_draw(a, s, &hint); break;
+    case SCR_CREATE: ap_create_draw(a, s, &hint); break;
+    case SCR_HELP: ap_help_draw(a, s, &hint); break;
     }
-    wipe(buf, REVEAL_MAX);
+    ap_wipe(buf, REVEAL_MAX);
     free(buf);
-    if (s->y0 + s->h > UI_H - FOOT_H) draw_footer(a, s, hint);
+    if (s->y0 + s->h > UI_H - FOOT_H) ap_draw_footer(a, s, hint);
 }

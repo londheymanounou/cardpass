@@ -43,15 +43,24 @@ checked by independent readers with `python tools/check_saved.py`.
 - `components/ui`: strip renderer (screens draw into a 240x16 band pushed to the panel; no
   65 KB framebuffer), Cozette 6x13 (MIT) + Spleen 8x16 (BSD) with Latin-1 + Extended-A +
   icons (tools/gen_font.py; licenses in components/ui/FONT_LICENSES.txt), dark/light palettes.
-- Screens (`app.c`): database picker, unlock (masked, errors), home (favorites, recent, groups),
-  groups, live search, entry view (reveal R, strength label, TOTP code + countdown, notes wrapped,
-  custom/protected fields, passkey, attachments, tags, expiry), QR (Q: black on white, any key or
-  20 s clears, modules wiped), auto-lock + fn+L lock. Lists are built lazily (no RAM per row).
+- Screens (`app.c` core, `app_edit.c`, `app_tools.c`): database picker (last one preselected),
+  unlock (masked, key file via Tab, KDF progress bar, errors), home (expiry alert, favorites,
+  recent, groups), groups, live search, entry view (↵ type field, A auto-type, R reveal,
+  Q QR, F favorite, E edit, fn+bksp delete → recycle bin), edit/new entry (inline editor,
+  G generator, custom fields add/remove/protect, tags, fn+S save, confirm on leave), generator
+  (password/passphrase, exact bits, types standalone), Tab menu, settings (theme, size, reveal,
+  auto-lock, layout, key delay, time zone, weak threshold, expiry days, default auto-type; saved
+  via the platform), password audit (weakest first, weak-only), expiring entries, new database
+  (name, password twice, cipher, unlock-time target from a KDF benchmark, optional generated key
+  file), key help (?). Status toasts; everything re-found by UUID after a save.
 - `tests/host/render.c`: scripted key presses through the real app; after each step only dirty
   strips are redrawn (like the device) and compared with a full redraw; PNGs in
   `tests/host/build/renders/`. `tools/check_qr.py` decodes the QR screens with OpenCV.
-- TODO: settings / generator / edit / audit / expiry screens, key-file picker, KDF progress UI,
-  the device loop (TCA8418 keys, display push, sleep).
+- `tools/check_ui_files.py`: the databases the render script edited/created, checked with
+  pykeepass + keepassxc-cli (edited URL + history, new entry in the recycle bin, protected custom
+  field, created ChaCha20 database with its generated key file).
+- TODO (device): the loop (TCA8418 keys, display push, sleep), USB/BLE HID, manual time set / NTP
+  screens, group management screens (create/rename/move exist in kdbx, no UI yet).
 
 ## Stage 7 — Passkeys: core DONE, USB TODO
 - `components/fido`: CBOR, CTAP2 getInfo + getAssertion over KeePassXC `KPEX_PASSKEY_*` entries

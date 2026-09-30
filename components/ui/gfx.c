@@ -139,7 +139,7 @@ size_t ui_wrap(const ui_font *f, const char *utf8, int max_w)
         if (w + a > max_w) break;
         w += a;
         p = q;
-        if (cp == ' ') last_space = p;
+        if (cp == ' ' || cp == '-') last_space = p;
     }
     if (*p && *p != '\n' && last_space) return (size_t)(last_space - utf8);
     if (p == utf8 && *p && *p != '\n') ui_utf8_next(&p); /* always make progress */

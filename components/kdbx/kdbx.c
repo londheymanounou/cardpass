@@ -134,6 +134,15 @@ end:
     return KDBX_OK;
 }
 
+static void (*progress_cb)(void *ctx, int pct);
+static void *progress_ctx;
+
+void kdbx_set_progress(void (*cb)(void *ctx, int pct), void *ctx)
+{
+    progress_cb = cb;
+    progress_ctx = ctx;
+}
+
 void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32])
 {
     mbedtls_aes_context aes;
@@ -142,10 +151,13 @@ void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32],
     mbedtls_aes_setkey_enc(&aes, seed, 256);
     memcpy(b, in, 32);
     /* ponytail: one core, halves interleaved; device splits halves across cores if faster */
+    uint64_t step = rounds / 50 ? rounds / 50 : 1;
     for (uint64_t i = 0; i < rounds; i++) {
         mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b, b);
         mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b + 16, b + 16);
+        if (progress_cb && i % step == 0) progress_cb(progress_ctx, (int)(i * 100 / rounds));
     }
+    if (progress_cb) progress_cb(progress_ctx, 100);
     mbedtls_sha256(b, 32, out, 0);
     mbedtls_aes_free(&aes);
     mbedtls_platform_zeroize(b, sizeof b);
