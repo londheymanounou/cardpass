@@ -55,7 +55,7 @@ typedef struct {
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
@@ -74,6 +74,9 @@ typedef struct {
 
 struct app_edit;
 struct app_time;
+struct app_acct;
+struct app_groups;
+struct app_view;
 struct app_gen;
 struct app_create;
 
@@ -141,6 +144,9 @@ typedef struct {
     int time_src;              /* 0 unknown, 1 by hand, 2 over Wi-Fi */
     uint32_t time_set_ms;      /* app clock when it was set: "set 4 min ago" */
     struct app_time *tm;
+    struct app_acct *acct;
+    struct app_groups *grp;
+    struct app_view *view;
 
     struct app_edit *ed;
     struct app_gen *gen;

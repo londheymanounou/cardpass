@@ -203,6 +203,35 @@ static void select_title(const char *t)
     CHECK(0, "no row %s", t);
 }
 
+static void select_group(const char *name)
+{
+    for (int i = 0; i < A.nhits; i++) {
+        const list_item *it = &((list_item *)A.hits)[i];
+        if (it->type == LI_GROUP && !strcmp(((const kdbx_group *)it->p)->name, name)) { keys(K_DOWN, (i - A.sel + A.nhits) % A.nhits); return; }
+    }
+    CHECK(0, "no group row %s", name);
+}
+
+static const kdbx_group *group_named(const char *n)
+{
+    for (const kdbx_group *g = kdbx_groups(A.db); g; g = g->next)
+        if (!strcmp(g->name, n)) return g;
+    return NULL;
+}
+
+static void copy_as(const char *name, const char *as)
+{
+    char s[512], d[512];
+    snprintf(s, sizeof s, "%s/%s", tdir, name);
+    snprintf(d, sizeof d, "%s/%s", wdir, as);
+    FILE *a = fopen(s, "rb"), *b = fopen(d, "wb");
+    char buf[8192];
+    size_t n;
+    while (a && b && (n = fread(buf, 1, sizeof buf, a)) > 0) fwrite(buf, 1, n, b);
+    if (a) fclose(a);
+    if (b) fclose(b);
+}
+
 static void select_row_kind(int kind)
 {
     for (int i = 0; i < A.nrows; i++)
@@ -221,6 +250,9 @@ int main(int argc, char **argv)
     char p[600];
     const char *dbs[] = {"aes_kpxc.kdbx", "argon2.kdbx", "big1000.kdbx", "passkeys.kdbx", "keyfile_xml2.kdbx", "key_xml2.keyx"};
     for (size_t i = 0; i < sizeof dbs / sizeof *dbs; i++) copy(dbs[i]);
+    copy_as("chacha_kpxc.kdbx", "chg.kdbx");
+    snprintf(p, sizeof p, "%s/chg.keyx", wdir);
+    remove(p);
     snprintf(p, sizeof p, "%s/newdb.kdbx", wdir);
     remove(p);
     snprintf(p, sizeof p, "%s/newdb.keyx", wdir);
@@ -463,6 +495,150 @@ int main(int argc, char **argv)
         app_lock(&A);
     }
 
+    /* change password + key file, groups, moving an entry, attachment viewer (scratch copy chg.kdbx) */
+    {
+        char path[700];
+        snprintf(path, sizeof path, "%s/chg.kdbx", wdir);
+        open_db("chg.kdbx", "test");
+        key(K_TAB);
+        keys(K_DOWN, 9);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_ACCOUNT, "change password screen");
+        snap("80_account");
+        type("bad"); key(K_ENTER);
+        type("n3w pw"); key(K_ENTER);
+        type("n3w pw"); key(K_ENTER);
+        keys(K_DOWN, 2);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_ACCOUNT && strstr(A.msg, "wrong"), "wrong current password refused: %s", A.msg);
+        snap("81_account_wrong");
+        keys(K_UP, 5);
+        key(K_ENTER);                      /* edit "bad" */
+        keys(K_BACKSPACE, 3);
+        type("test");
+        key(K_ENTER);
+        keys(K_DOWN, 4);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_HOME && A.db && strstr(A.msg, "changed"), "password changed: %s", A.msg);
+        {
+            char bak[720];
+            snprintf(bak, sizeof bak, "%s.bak", path);
+            FILE *f = fopen(bak, "rb");
+            CHECK(!f, ".bak with the old password removed");
+            if (f) fclose(f);
+            kdbx_key k;
+            f = fopen(path, "rb");
+            kdbx_key_init(&k, "n3w pw", 6, NULL);
+            CHECK(f && kdbx_check_key(f, &k) == KDBX_OK, "new password opens the file");
+            fclose(f);
+            kdbx_key_init(&k, "test", 4, NULL);
+            f = fopen(path, "rb");
+            CHECK(f && kdbx_check_key(f, &k) == KDBX_ERR_KEY, "old password no longer works");
+            fclose(f);
+        }
+        snap("82_account_done");
+        key(K_TAB);                       /* second change: new password + generated key file + ~1 s KDF */
+        keys(K_DOWN, 9);
+        key(K_ENTER);
+        type("n3w pw"); key(K_ENTER);
+        type("kf pw"); key(K_ENTER);
+        type("kf pw"); key(K_ENTER);
+        key(K_ENTER);                      /* key file: Generate new */
+        key(K_DOWN);
+        key(K_ENTER);                      /* unlock in ~1 s */
+        snap("83_account_keyfile");
+        key(K_DOWN);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_HOME && strstr(A.msg, "changed") && A.keyfile > 0, "key file added: %s", A.msg);
+        {
+            char kp[720];
+            snprintf(kp, sizeof kp, "%s/chg.keyx", wdir);
+            FILE *kf = fopen(kp, "rb"), *f = fopen(path, "rb");
+            kdbx_key k;
+            CHECK(kf && f && kdbx_key_init(&k, "kf pw", 5, kf) == KDBX_OK && kdbx_check_key(f, &k) == KDBX_OK, "password + key file open the file");
+            if (kf) fclose(kf);
+            if (f) fclose(f);
+        }
+
+        /* groups */
+        key(K_TAB);
+        keys(K_DOWN, 8);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_GROUPS, "groups screen");
+        snap("84_groups");
+        key(K_ENTER);
+        type("Work");
+        snap("85_group_name");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_HOME && group_named("Work"), "group created");
+        select_group("Work");
+        key(K_ENTER);
+        key(K_TAB);
+        keys(K_DOWN, 8);
+        key(K_ENTER);
+        key(K_DOWN);
+        key(K_ENTER);                      /* rename */
+        keys(K_BACKSPACE, 4);
+        type("Job");
+        key(K_ENTER);
+        CHECK(group_named("Job") && !group_named("Work"), "group renamed");
+        select_group("Job");
+        key(K_ENTER);
+        key(K_TAB);
+        keys(K_DOWN, 8);
+        key(K_ENTER);
+        keys(K_DOWN, 2);
+        key(K_ENTER);                      /* move: choose the destination */
+        snap("86_group_move");
+        key(K_DOWN);                       /* Email, [Banking], ... */
+        key(K_ENTER);
+        CHECK(group_named("Job") && group_named("Job")->parent == group_named("Banking"), "group moved into Banking");
+        select_group("Banking");
+        key(K_ENTER);
+        select_group("Job");
+        key(K_ENTER);
+        key(K_TAB);
+        keys(K_DOWN, 8);
+        key(K_ENTER);
+        keys(K_DOWN, 3);
+        key(K_ENTER);
+        snap("87_group_delete_confirm");
+        key(K_ENTER);
+        CHECK(group_named("Job") && group_named("Job")->parent && !strcmp(group_named("Job")->parent->name, "Recycle Bin"),
+              "group moved to the recycle bin");
+        ap_go_home(&A);
+
+        /* moving an entry */
+        type("gmail");
+        key(K_ENTER);
+        key('m');
+        snap("88_entry_move");
+        keys(K_DOWN, 3);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_ENTRY && A.entry && !strcmp(A.entry->group->name, "Caf\xC3\xA9 & Bar"), "entry moved: %s", A.entry ? A.entry->group->name : "-");
+        key(96);
+        key(K_ESC);
+
+        /* attachment viewer */
+        type("bank");
+        key(K_ENTER);
+        select_row_kind(7);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_VIEW, "viewer opens a text attachment");
+        snap("89_view_text");
+        keys(K_DOWN, 3);
+        snap("90_view_scrolled");
+        key(96);
+        CHECK(A.scr == SCR_ENTRY, "back to the entry");
+        key(K_DOWN);
+        key(K_ENTER);
+        CHECK(A.scr == SCR_VIEW, "viewer opens the binary attachment");
+        snap("91_view_binary");
+        key(96);
+        app_lock(&A);
+        CHECK(A.view == NULL && A.acct == NULL && A.grp == NULL, "everything wiped on lock");
+    }
+
     /* setting the time (cfg.tz_minutes = 120): by hand, then over Wi-Fi */
     {
         if (A.db) app_lock(&A);
@@ -591,7 +767,8 @@ int main(int argc, char **argv)
     keys(K_UP, A.sel);
     keys(K_DOWN, i);
     key(K_ENTER);
-    key(K_TAB);
+    for (int t = 0; t < 4 && (A.keyfile == 0 || strcmp(A.keyfiles[A.keyfile - 1], "key_xml2.keyx")); t++) key(K_TAB);
+    CHECK(A.keyfile > 0 && !strcmp(A.keyfiles[A.keyfile - 1], "key_xml2.keyx"), "key file chosen");
     type("test");
     snap("33_unlock_keyfile");
     key(K_ENTER);

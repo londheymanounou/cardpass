@@ -73,6 +73,8 @@ typedef struct kdbx_entry {
 typedef struct kdbx_db kdbx_db;
 
 kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out);
+/* Verify a key against the database file (KDF + header HMAC; KDBX_ERR_KEY if wrong). */
+kdbx_err kdbx_check_key(FILE *f, const kdbx_key *key);
 /* Called ~50 times during every AES-KDF run (unlock, rekey, create): 0..100 %. NULL = off. */
 void kdbx_set_progress(void (*cb)(void *ctx, int pct), void *ctx);
 /* The AES-KDF itself (public for the rounds benchmark when creating a database). */

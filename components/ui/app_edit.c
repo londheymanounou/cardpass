@@ -70,14 +70,16 @@ static const kdbx_entry *find_entry(const kdbx_db *db, const uint8_t u[16])
     return NULL;
 }
 
-static const kdbx_group *find_group(const kdbx_db *db, const uint8_t u[16])
+const kdbx_group *ap_find_group(const kdbx_db *db, const uint8_t u[16])
 {
     for (const kdbx_group *g = kdbx_groups(db); g; g = g->next)
         if (!memcmp(g->uuid, u, 16)) return g;
     return NULL;
 }
 
-bool ap_save(app *a, const kdbx_edit *ed, size_t n)
+bool ap_save(app *a, const kdbx_edit *ed, size_t n) { return ap_save_ex(a, ed, n, NULL, 0); }
+
+bool ap_save_ex(app *a, const kdbx_edit *ed, size_t n, const kdbx_key *newkey, uint64_t rounds)
 {
     uint8_t eu[16] = {0}, gu[16] = {0}, ru[APP_RECENT][16];
     bool he = a->entry, hg = a->group;
@@ -90,7 +92,10 @@ bool ap_save(app *a, const kdbx_edit *ed, size_t n)
 
     bool valid;
     int64_t now = a->p->now(a->p->ctx, &valid);
-    kdbx_err e = kdbx_save(&a->db, a->path, ed, n, now, NULL, 0);
+    kdbx_set_progress(ap_kdf_progress, a);                 /* a rekey runs the KDF: show progress */
+    kdbx_err e = kdbx_save(&a->db, a->path, ed, n, now, newkey, rounds);
+    kdbx_set_progress(NULL, NULL);
+    a->progress = -1;
     if (!a->db) { /* saved, but the new index did not fit: start over */
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, e ? "Saved. Unlock again" : "Saved");
@@ -107,7 +112,7 @@ bool ap_save(app *a, const kdbx_edit *ed, size_t n)
         return false;
     }
     a->entry = he ? find_entry(a->db, eu) : NULL;
-    a->group = hg ? find_group(a->db, gu) : NULL;
+    a->group = hg ? ap_find_group(a->db, gu) : NULL;
     if (!a->group) a->group = kdbx_root_group(a->db);
     int m = 0;
     for (int i = 0; i < a->nrecent; i++) {
@@ -188,6 +193,7 @@ bool ap_entry_key(app *a, uint32_t k, bool fn)
         case R_URL: type_seq(a, "{URL}"); break;
         case R_TOTP: type_seq(a, "{TOTP}"); break;
         case R_NOTES: type_seq(a, "{NOTES}"); break;
+        case R_ATT: ap_view_open(a, r->att); break;
         case R_FIELD:
             if (strchr(r->f->key, '}') || strlen(r->f->key) > 60) snprintf(a->msg, sizeof a->msg, "Can't type this field");
             else snprintf(seq, sizeof seq, "{S:%s}", r->f->key), type_seq(a, seq);
@@ -199,6 +205,8 @@ bool ap_entry_key(app *a, uint32_t k, bool fn)
         else type_seq(a, kdbx_autotype(a->entry, a->cfg.autotype));
     } else if (k == 'f' || k == 'F') {
         toggle_favorite(a);
+    } else if (k == 'm' || k == 'M') {
+        ap_groups_move_entry(a);
     } else if (k == 't' || k == 'T') {
         ap_time_open(a, SCR_ENTRY);
     } else if (k == 'e' || k == 'E') {

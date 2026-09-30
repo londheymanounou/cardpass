@@ -396,6 +396,27 @@ kdbx_err kdbx_index_payload(const uint8_t *d, size_t n, bool gzip, size_t chunk,
     return err;
 }
 
+/* Does this key open the file? Runs the KDF and checks the header HMAC only: no payload, no index. */
+kdbx_err kdbx_check_key(FILE *f, const kdbx_key *key)
+{
+    kdbx_header *h = malloc(sizeof *h);
+    uint8_t sums[64], mac[32], tk[32], master[32], base[64];
+    kdbx_err err = KDBX_ERR_NOMEM;
+    if (!h) return err;
+    if ((err = kdbx_read_header(f, h)) != KDBX_OK) goto done;
+    if (fread(sums, 1, 64, f) != 64) { err = KDBX_ERR_IO; goto done; }
+    kdbx_aes_kdf(h->kdf_seed, h->rounds, key->composite, tk);
+    kdbx_derive(h, tk, master, base);
+    kdbx_header_hmac(h, base, mac);
+    err = mbedtls_ct_memcmp(mac, sums + 32, 32) ? KDBX_ERR_KEY : KDBX_OK;
+done:
+    mbedtls_platform_zeroize(tk, sizeof tk);
+    mbedtls_platform_zeroize(master, sizeof master);
+    mbedtls_platform_zeroize(base, sizeof base);
+    free(h);
+    return err;
+}
+
 kdbx_err kdbx_read_file(FILE *f, const uint8_t *composite, uint8_t tk[32], kdbx_header *h, kdbx_sink *s)
 {
     pipeline *p = calloc(1, sizeof *p);

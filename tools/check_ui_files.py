@@ -35,8 +35,31 @@ new = PyKeePass(str(DB / "newdb.kdbx"), password="créé 1", keyfile=str(DB / "n
 check(new.encryption_algorithm == "chacha20" and new.kdf_algorithm == "aeskdf", "created: ChaCha20 + AES-KDF")
 check(new.root_group.name == "newdb", "created: root group name")
 
+chg = PyKeePass(str(DB / "chg.kdbx"), password="kf pw", keyfile=str(DB / "chg.keyx"))
+check(chg.encryption_algorithm == "chacha20" and chg.kdf_algorithm == "aeskdf", "chg: cipher and AES-KDF kept")
+bak = DB / "chg.kdbx.bak"   # later edits make a fresh backup: it must use the NEW credentials, never the old password
+if bak.exists():
+    PyKeePass(str(bak), password="kf pw", keyfile=str(DB / "chg.keyx"))
+    try:
+        PyKeePass(str(bak), password="test")
+        check(False, "chg: backup must not open with the old password")
+    except Exception:
+        check(True, "chg: backup opens only with the new credentials")
+gm = chg.find_entries(title="Gmail", first=True)
+check(gm and gm.group.name == "Café & Bar" and gm.password == "Gm@il-p4ss!-v2", "chg: Gmail moved to Café & Bar, password intact")
+job = chg.find_groups(name="Job", first=True)
+check(job and job.parentgroup.name == "Recycle Bin", "chg: group Job deleted into the recycle bin")
+bank = chg.find_entries(title="Bank", first=True)
+check(bank and {a.filename for a in bank.attachments} == {"notes.txt", "scan.bin"}, "chg: attachments intact")
+check(len(chg.entries) == 5, f"chg: {len(chg.entries)} entries")
+try:
+    PyKeePass(str(DB / "chg.kdbx"), password="test")
+    check(False, "chg: old password must not open it")
+except Exception:
+    check(True, "chg: old password does not open it")
+
 if KPXC:
-    for name, pw, kf in [("aes_kpxc.kdbx", "test", None), ("newdb.kdbx", "créé 1", "newdb.keyx")]:
+    for name, pw, kf in [("aes_kpxc.kdbx", "test", None), ("newdb.kdbx", "créé 1", "newdb.keyx"), ("chg.kdbx", "kf pw", "chg.keyx")]:
         cmd = [KPXC, "db-info", "-q"] + (["-k", str(DB / kf)] if kf else []) + [str(DB / name)]
         r = subprocess.run(cmd, input=pw + "\n", capture_output=True, text=True, encoding="utf-8")
         check(r.returncode == 0, f"KeePassXC opens {name}")

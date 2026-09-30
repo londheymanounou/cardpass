@@ -27,7 +27,7 @@ void ap_return(app *a, int scr)
 
 /* ======================= menu ======================= */
 
-enum { M_NEW_ENTRY, M_GENERATOR, M_AUDIT, M_EXPIRY, M_SETTINGS, M_LOCK, M_NEW_DB, M_DRIVE, M_TIME };
+enum { M_NEW_ENTRY, M_GENERATOR, M_AUDIT, M_EXPIRY, M_SETTINGS, M_LOCK, M_NEW_DB, M_DRIVE, M_TIME, M_GROUPS, M_ACCOUNT };
 
 static int menu_items(app *a, int *out)
 {
@@ -41,6 +41,8 @@ static int menu_items(app *a, int *out)
         out[n++] = M_LOCK;
         out[n++] = M_DRIVE;
         out[n++] = M_TIME;
+        out[n++] = M_GROUPS;
+        out[n++] = M_ACCOUNT;
     } else {
         out[n++] = M_NEW_DB;
         out[n++] = M_SETTINGS;
@@ -62,7 +64,7 @@ void ap_menu_open(app *a)
 void ap_menu_key(app *a, uint32_t k, bool fn)
 {
     (void)fn;
-    int it[10], n = menu_items(a, it);
+    int it[12], n = menu_items(a, it);
     if (k == K_UP) ap_move_sel(a, n, -1);
     else if (k == K_DOWN) ap_move_sel(a, n, 1);
     else if (k == '`' || k == K_ESC || k == K_TAB) { if (a->menu_back == SCR_PICKER) a->scr = SCR_PICKER, a->sel = 0, ap_mark_all(a); else ap_return(a, a->menu_back); }
@@ -81,6 +83,8 @@ void ap_menu_key(app *a, uint32_t k, bool fn)
         case M_LOCK: app_lock(a); break;
         case M_NEW_DB: ap_create_open(a); break;
         case M_TIME: ap_time_open(a, back); break;
+        case M_GROUPS: a->scr = back; ap_groups_open(a); break;
+        case M_ACCOUNT: ap_account_open(a); break;
         case M_DRIVE: ap_confirm(a, CONFIRM_DRIVE, a->db ? "Lock and share the SD card with a PC?" : "Share the SD card with a PC?"); break;
         }
     }
@@ -89,9 +93,9 @@ void ap_menu_key(app *a, uint32_t k, bool fn)
 void ap_menu_draw(app *a, ui_strip *s, const char **hint)
 {
     static const char *const names[] = {"New entry", "Password generator", "Password audit", "Expiring entries",
-                                        "Settings", "Lock now", "New database", "USB drive", "Set time"};
-    static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+", ICON_USB, ICON_CLOCK};
-    int it[10], n = menu_items(a, it);
+                                        "Settings", "Lock now", "New database", "USB drive", "Set time", "Groups", "Change password"};
+    static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+", ICON_USB, ICON_CLOCK, ICON_FOLDER_OPEN, ICON_KEY};
+    int it[12], n = menu_items(a, it);
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     for (int i = 0; i < n; i++) ap_draw_row(a, s, i, icons[it[i]], T->accent, names[it[i]], NULL, 0);
     *hint = U_ENTER " choose  ` back";
@@ -363,6 +367,10 @@ void ap_confirm_key(app *a, uint32_t k, bool fn)
             a->scr = SCR_ENTRY;
         }
         break;
+    case CONFIRM_DELETE_GROUP:
+        if (yes) ap_groups_delete(a);
+        else if (no) a->scr = SCR_GROUPS;
+        break;
     case CONFIRM_DRIVE:
         if (yes) {
             app_lock(a);                                   /* wipes the database and every buffer first */
@@ -440,7 +448,7 @@ static char *create_buf(struct app_create *c, int row, int *cap)
 }
 
 /* Rounds for the time target, from a short benchmark of this device's AES-KDF. */
-static uint64_t benchmark_rounds(app *a, int seconds)
+uint64_t ap_benchmark_rounds(app *a, int seconds)
 {
     static const uint8_t seed[32], in[32];
     uint8_t out[32];
@@ -475,7 +483,7 @@ static void do_create(app *a)
     snprintf(a->msg, sizeof a->msg, "Measuring this device\xE2\x80\xA6");
     ap_mark_all(a);
     a->p->present(a->p->ctx);
-    uint64_t rounds = benchmark_rounds(a, c->seconds);
+    uint64_t rounds = ap_benchmark_rounds(a, c->seconds);
 
     kdbx_key key;
     kdbx_err e = kdbx_key_init(&key, c->pw[0] ? c->pw : NULL, strlen(c->pw), kf);
@@ -575,7 +583,7 @@ void ap_help_draw(app *a, ui_strip *s, const char **hint)
 {
     static const char *const entry[] = {
         U_ENTER "  type the selected field", "A  auto-type the whole login", "R  reveal     Q  QR code",
-        "E  edit      F  favorite on/off", "fn+bksp  delete (recycle bin)", "tab  menu    fn+L  lock now"};
+        "E  edit  F  favorite  M  move", "fn+bksp  delete (recycle bin)", "tab  menu  T  time  fn+L  lock"};
     static const char *const list[] = {
         "type  search (accents and case ignored)", U_UPDOWN "  move    " U_ENTER "  open", "`  back    fn+`  clear search",
         "tab  menu: new entry, generator,", "     audit, expiring, settings", "fn+L  lock now"};

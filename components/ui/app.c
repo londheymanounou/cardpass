@@ -284,6 +284,13 @@ bool ap_totp_now(app *a, const kdbx_entry *e, const kdbx_field *f, char *out, si
 
 /* ======================= lock / unlock ======================= */
 
+void ap_rescan_files(app *a)
+{
+    a->ndbs = a->p->list_files(a->p->ctx, ".kdbx", a->dbs, APP_MAX_DBS);
+    a->nkeyfiles = a->p->list_files(a->p->ctx, ".keyx", a->keyfiles, APP_MAX_DBS);
+    a->nkeyfiles += a->p->list_files(a->p->ctx, ".key", a->keyfiles + a->nkeyfiles, APP_MAX_DBS - a->nkeyfiles);
+}
+
 void app_lock(app *a)
 {
     kdbx_close(a->db);
@@ -293,6 +300,9 @@ void app_lock(app *a)
     ap_gen_free(a);
     ap_create_free(a);
     ap_time_free(a);
+    ap_account_free(a);
+    ap_groups_free(a);
+    ap_view_free(a);
     ap_wipe(a->pw, sizeof a->pw);
     ap_wipe(a->query, sizeof a->query);
     ap_wipe(a->recent, sizeof a->recent);
@@ -303,9 +313,7 @@ void app_lock(app *a)
     a->group = NULL;
     a->revealed = false;
     a->progress = -1;
-    a->ndbs = a->p->list_files(a->p->ctx, ".kdbx", a->dbs, APP_MAX_DBS);
-    a->nkeyfiles = a->p->list_files(a->p->ctx, ".keyx", a->keyfiles, APP_MAX_DBS);
-    a->nkeyfiles += a->p->list_files(a->p->ctx, ".key", a->keyfiles + a->nkeyfiles, APP_MAX_DBS - a->nkeyfiles);
+    ap_rescan_files(a);
     a->keyfile = 0;
     a->scr = SCR_PICKER;
     a->sel = a->top = 0;
@@ -555,6 +563,9 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_FIDO: ap_fido_key(a, k, fn); break;
     case SCR_DRIVE: ap_drive_key(a, k, fn); break;
     case SCR_TIME: ap_time_key(a, k, fn); break;
+    case SCR_ACCOUNT: ap_account_key(a, k, fn); break;
+    case SCR_GROUPS: ap_groups_key(a, k, fn); break;
+    case SCR_VIEW: ap_view_key(a, k, fn); break;
     }
 }
 
@@ -666,6 +677,13 @@ void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, 
     int rw = right && *right ? ui_text_width(&ui_font_small, right) : 0;
     ui_text(s, F, x, ty, text, sel ? T->sel_fg : T->fg, UI_W - x - PAD - (rw ? rw + 6 : 0));
     if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, y + (h - ui_font_small.height) / 2, right, right_c, rw);
+}
+
+void ap_row_bg(app *a, ui_strip *s, int y, int h, int i)
+{
+    bool sel = i == a->sel;
+    ui_fill(s, 0, y, UI_W, h, sel ? T->sel_bg : T->bg);
+    if (sel) ui_fill(s, 0, y, 2, h, T->accent);
 }
 
 void ap_draw_scrollbar_in(app *a, ui_strip *s, int top, int n)
@@ -903,6 +921,9 @@ void app_draw(app *a, ui_strip *s)
     case SCR_FIDO: snprintf(title, sizeof title, "%s Passkey", ICON_KEY); break;
     case SCR_DRIVE: snprintf(title, sizeof title, "%s USB drive", ICON_USB); break;
     case SCR_TIME: snprintf(title, sizeof title, "%s Time", ICON_CLOCK); break;
+    case SCR_ACCOUNT: snprintf(title, sizeof title, "Change password"); break;
+    case SCR_GROUPS: snprintf(title, sizeof title, "%s Groups", ICON_FOLDER_OPEN); break;
+    case SCR_VIEW: snprintf(title, sizeof title, "%s %.40s", ICON_FILE, ap_view_name(a)); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
     }
     if (s->y0 < BAR_H) ap_draw_bar(a, s, title);
@@ -961,6 +982,9 @@ void app_draw(app *a, ui_strip *s)
     case SCR_FIDO: ap_fido_draw(a, s, &hint); break;
     case SCR_DRIVE: ap_drive_draw(a, s, &hint); break;
     case SCR_TIME: ap_time_draw(a, s, &hint); break;
+    case SCR_ACCOUNT: ap_account_draw(a, s, &hint); break;
+    case SCR_GROUPS: ap_groups_draw(a, s, &hint); break;
+    case SCR_VIEW: ap_view_draw(a, s, &hint); break;
     }
     ap_wipe(buf, REVEAL_MAX);
     free(buf);

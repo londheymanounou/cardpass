@@ -66,6 +66,10 @@ bool ap_totp_now(app *a, const kdbx_entry *e, const kdbx_field *f, char *out, si
 /* app_edit.c */
 bool ap_entry_key(app *a, uint32_t k, bool fn);     /* entry-view actions; true if handled */
 bool ap_save(app *a, const kdbx_edit *ed, size_t n);/* save + re-find everything by UUID */
+bool ap_save_ex(app *a, const kdbx_edit *ed, size_t n, const kdbx_key *newkey, uint64_t rounds);
+uint64_t ap_benchmark_rounds(app *a, int seconds);   /* AES-KDF rounds for a target unlock time */
+void ap_rescan_files(app *a);                        /* database + key file lists */
+const kdbx_group *ap_find_group(const kdbx_db *db, const uint8_t uuid[16]);
 void ap_edit_open(app *a, const kdbx_entry *e, const kdbx_group *parent); /* e NULL: new entry */
 void ap_edit_key(app *a, uint32_t k, bool fn);
 void ap_edit_draw(app *a, ui_strip *s, const char **hint);
@@ -103,10 +107,26 @@ void ap_time_draw(app *a, ui_strip *s, const char **hint);
 void ap_time_free(app *a);
 void ap_move_sel_in(app *a, int *sel, int *top, int n, int delta);
 void ap_draw_scrollbar_in(app *a, ui_strip *s, int top, int n);
+void ap_account_open(app *a);
+void ap_account_key(app *a, uint32_t k, bool fn);
+void ap_account_draw(app *a, ui_strip *s, const char **hint);
+void ap_account_free(app *a);
+void ap_groups_open(app *a);
+void ap_groups_move_entry(app *a);
+void ap_groups_delete(app *a);
+void ap_groups_key(app *a, uint32_t k, bool fn);
+void ap_groups_draw(app *a, ui_strip *s, const char **hint);
+void ap_groups_free(app *a);
+void ap_view_open(app *a, const kdbx_attachment *att);
+void ap_view_key(app *a, uint32_t k, bool fn);
+void ap_view_draw(app *a, ui_strip *s, const char **hint);
+void ap_view_free(app *a);
+const char *ap_view_name(const app *a);
+void ap_row_bg(app *a, ui_strip *s, int y, int h, int i);   /* row background (+ selection highlight) */
 void ap_drive_key(app *a, uint32_t k, bool fn);
 void ap_drive_draw(app *a, ui_strip *s, const char **hint);
 void ap_fido_key(app *a, uint32_t k, bool fn);
 void ap_fido_draw(app *a, ui_strip *s, const char **hint);
 void ap_kdf_progress(void *ctx, int pct);
 
-enum { CONFIRM_DELETE_ENTRY = 1, CONFIRM_DISCARD_EDIT, CONFIRM_SAVE_EDIT, CONFIRM_DRIVE };
+enum { CONFIRM_DELETE_ENTRY = 1, CONFIRM_DISCARD_EDIT, CONFIRM_SAVE_EDIT, CONFIRM_DRIVE, CONFIRM_DELETE_GROUP };
