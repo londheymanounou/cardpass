@@ -362,6 +362,7 @@ void ap_draw_progress(app *a, ui_strip *s, const char *title)
     ui_text(s, &ui_font_small, PAD * 2, by + 16, line, T->dim, UI_W - PAD * 4);
     ui_text(s, &ui_font_small, PAD * 2, by + 34, "Key derivation is slow on purpose.", T->dim, UI_W - PAD * 4);
     ui_text(s, &ui_font_small, PAD * 2, by + 46, "Keep the device powered.", T->dim, UI_W - PAD * 4);
+    if (!kdbx_kdf_accel_active()) ui_text(s, &ui_font_small, PAD * 2, by + 58, "Hardware AES off: slower.", T->warn, UI_W - PAD * 4);
 }
 
 void ap_kdf_progress(void *ctx, int pct)

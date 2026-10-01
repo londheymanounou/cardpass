@@ -209,6 +209,12 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
+- **AES-KDF accelerator + unlock progress screen**: `kdbx_set_kdf_accel` hook in the portable code; `hw_aes.c` runs
+  the S3 AES engine in plain block mode (mbedTLS sends each 16-byte block through GDMA, far slower), with a boot
+  selftest against the portable loop. Host-tested (hook, chunking, fallback, progress), QEMU-checked (its AES model
+  agrees), NOT run on the real chip: see docs/first-hardware.md 3h. The unlock / create / change-password progress
+  screen shows percent, bar, elapsed and estimated time left. The rounds benchmark ("Unlock in N s") uses an
+  adaptive probe so it times the fast path properly.
 - **Splash / logo**: a tilted blank card with a key inside (from the owner's sketch), drawn from distance
   functions in `app_splash.c` (no bitmap, anti-aliased, follows the dark/light theme). Shown at start-up for
   3 s, any key skips it, Settings -> Splash turns it off (`splash=off` in the settings file). Host-tested.

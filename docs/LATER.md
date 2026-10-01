@@ -9,7 +9,11 @@ Today `kdbx_aes_kdf` (components/kdbx/kdbx.c) calls `mbedtls_aes_crypt_ecb` twic
 locks the AES peripheral, enables its clock, reloads the 256-bit key, does one block, releases it: that overhead
 probably dominates. Unlock runs the KDF once; a normal save reuses the derived key (no second KDF).
 
-1. **Hold the AES hardware for the whole loop** (biggest win, maybe several times faster): one
+1. DONE (compile-checked, QEMU-checked, not run on the real chip) **Hold the AES hardware for the whole loop**. On the S3, mbedTLS sends every
+   16-byte block through a GDMA transfer, so this is probably a ~10-30x win, not "several times". Implemented as an
+   accelerator hook (`kdbx_set_kdf_accel`, firmware/src/hw_aes.c): plain block mode, key loaded once per chunk, lock
+   released between chunks, one tick of yield per second for the watchdog, boot-time selftest against the portable
+   loop (the accelerator is only registered if it matches; the progress screen warns when it is off). Original plan: one
    `esp_aes_acquire_hardware()`, one `aes_hal_setkey()`, then a tight loop of `aes_hal_transform_block()` on both
    16-byte halves, release at the end (headers: mbedtls/port/include/aes/esp_aes.h, hal/aes_hal.h). Device-only
    fast path; keep the mbedTLS loop for the host and as a fallback; check both against the existing KDF test vectors.
@@ -18,7 +22,8 @@ probably dominates. Unlock runs the KDF once; a normal save reuses the derived k
    used by unlock, create and change-password. It hangs off the generic KDF progress callback, so the Argon2
    swap work only has to call `kdbx_set_progress` like the AES-KDF loop does. Not done: cancelling with Esc (the
    KDF loops would need an abort path through open/save/create).
-3. **"Target N seconds" for the round count** in Change password: time a few thousand rounds on the device and
+3. DONE (it already existed as `ap_benchmark_rounds`; now with an adaptive probe so the fast path is timed properly)
+   **"Target N seconds" for the round count** in Change password: time a few thousand rounds on the device and
    pick the round count for N seconds. A database tuned on a PC for 1 s can take much longer on the Cardputer.
 4. Stay at 240 MHz during the loop (DFS lock): small gain, cheap.
 5. Not recommended without a decision: keeping the derived key in RAM for a session behind a short PIN (near-instant

@@ -458,10 +458,15 @@ uint64_t ap_benchmark_rounds(app *a, int seconds)
 {
     static const uint8_t seed[32], in[32];
     uint8_t out[32];
-    const uint64_t probe = 20000;
-    uint32_t t0 = a->p->millis(a->p->ctx);
-    kdbx_aes_kdf(seed, probe, in, out);
-    uint32_t dt = a->p->millis(a->p->ctx) - t0;
+    uint64_t probe = 20000;
+    uint32_t dt;
+    for (;;) {                      /* long enough to time well: the hardware path does 20,000 rounds in ~40 ms */
+        uint32_t t0 = a->p->millis(a->p->ctx);
+        kdbx_aes_kdf(seed, probe, in, out);
+        dt = a->p->millis(a->p->ctx) - t0;
+        if (dt >= 250 || probe >= 1000000) break;
+        probe *= 4;
+    }
     uint64_t r = probe * (uint64_t)seconds * 1000u / (dt ? dt : 1);
     return r < 10000 ? 10000 : r > 100000000 ? 100000000 : r;
 }

@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include "app.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hw.h"
@@ -174,6 +175,22 @@ const char *qemu_state(int *scr, int *open) { *scr = A.scr; *open = A.db != NULL
 void app_main(void)
 {
     MARK("start");
+    bool aes_ok = hw_aes_selftest();                 /* accelerated AES-KDF only if it matches the portable loop */
+    if (aes_ok) kdbx_set_kdf_accel(hw_aes_kdf_accel);
+#ifdef CARDPASS_QEMU
+    {
+        uint8_t sd[32] = {1, 2, 3}, in[32] = {9, 8, 7}, o1[32], o2[32];
+        int64_t t0 = esp_timer_get_time();
+        kdbx_set_kdf_accel(NULL);
+        kdbx_aes_kdf(sd, 3000, in, o1);
+        int64_t t1 = esp_timer_get_time();
+        kdbx_set_kdf_accel(hw_aes_kdf_accel);
+        kdbx_aes_kdf(sd, 3000, in, o2);
+        int64_t t2 = esp_timer_get_time();
+        esp_rom_printf("QEMU aes-kdf selftest=%d match=%d portable=%d us accelerated=%d us (3000 rounds)\n", aes_ok, !memcmp(o1, o2, 32), (int)(t1 - t0), (int)(t2 - t1));
+        if (!aes_ok) kdbx_set_kdf_accel(NULL);
+    }
+#endif
     esp_err_t e = nvs_flash_init();
     if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) { /* launchers may wipe or share NVS */
         nvs_flash_erase();

@@ -90,6 +90,15 @@ is refused; a host that only does "Just Works" pairing is dropped; the pairing s
 before and after a Bluetooth session must match (clean stack teardown). Known risk: repeated
 NimBLE init/deinit cycles: watch for a slow leak over many sessions.
 
+## 3h. AES-KDF accelerator (hw_aes.c)
+The unlock key derivation uses the AES engine in plain block mode instead of mbedTLS (which sends every 16-byte
+block through DMA). A boot-time selftest compares both and only enables it if they match. Check: unlock a
+database with a known round count and time it. Expect roughly 2-5 microseconds per round (a few seconds per
+million rounds); about 60 us per round means the accelerator is off, and the progress screen then says
+"Hardware AES off: slower". Then create a database with Change password / New database (target seconds) and open
+it in KeePassXC: it must open (this proves the accelerated KDF output is right on the real chip). Also check
+that nothing resets during a long unlock (the idle-task watchdog is fed by a one-tick yield every second).
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |

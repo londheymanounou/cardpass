@@ -140,23 +140,40 @@ void kdbx_set_progress(void (*cb)(void *ctx, int pct), void *ctx)
     progress_ctx = ctx;
 }
 
-void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32])
+static kdbx_kdf_accel_fn kdf_accel;
+
+void kdbx_set_kdf_accel(kdbx_kdf_accel_fn fn) { kdf_accel = fn; }
+bool kdbx_kdf_accel_active(void) { return kdf_accel != NULL; }
+
+static void soft_rounds(const uint8_t seed[32], uint8_t b[32], uint64_t n)
 {
     mbedtls_aes_context aes;
-    uint8_t b[32];
     mbedtls_aes_init(&aes);
     mbedtls_aes_setkey_enc(&aes, seed, 256);
-    memcpy(b, in, 32);
-    /* ponytail: one core, halves interleaved; device splits halves across cores if faster */
-    uint64_t step = rounds / 50 ? rounds / 50 : 1;
-    for (uint64_t i = 0; i < rounds; i++) {
+    for (uint64_t i = 0; i < n; i++) {
         mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b, b);
         mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b + 16, b + 16);
-        if (progress_cb && i % step == 0) progress_cb(progress_ctx, (int)(i * 100 / rounds));
+    }
+    mbedtls_aes_free(&aes);
+}
+
+#define KDF_MAX_CHUNK 500000u   /* a chunk is one accelerator call: keeps the hardware lock short and the watchdog fed */
+
+void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32])
+{
+    uint8_t b[32];
+    memcpy(b, in, 32);
+    uint64_t chunk = rounds / 50 ? rounds / 50 : 1;
+    if (chunk > KDF_MAX_CHUNK) chunk = KDF_MAX_CHUNK;
+    if (progress_cb) progress_cb(progress_ctx, 0);
+    for (uint64_t done = 0; done < rounds;) {
+        uint64_t n = rounds - done < chunk ? rounds - done : chunk;
+        if (!kdf_accel || !kdf_accel(seed, b, n)) soft_rounds(seed, b, n);
+        done += n;
+        if (progress_cb) progress_cb(progress_ctx, (int)(done * 100 / rounds));
     }
     if (progress_cb) progress_cb(progress_ctx, 100);
     mbedtls_sha256(b, 32, out, 0);
-    mbedtls_aes_free(&aes);
     mbedtls_platform_zeroize(b, sizeof b);
 }
 

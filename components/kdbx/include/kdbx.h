@@ -78,6 +78,13 @@ kdbx_err kdbx_open(FILE *f, const kdbx_key *key, kdbx_db **out);
 kdbx_err kdbx_check_key(FILE *f, const kdbx_key *key);
 /* Called ~50 times during every AES-KDF run (unlock, rekey, create): 0..100 %. NULL = off. */
 void kdbx_set_progress(void (*cb)(void *ctx, int pct), void *ctx);
+/* Optional accelerator for the AES-KDF inner loop (the device runs the AES hardware in plain block mode instead of
+ * mbedTLS' one DMA transfer per 16 bytes). It must do n rounds on b[32] in place: each round is AES-256-ECB with
+ * key `seed` on the two 16-byte halves of b, independently. Return false to decline (the portable loop is used).
+ * It is called in chunks and must not keep the hardware locked between calls. NULL = no accelerator. */
+typedef bool (*kdbx_kdf_accel_fn)(const uint8_t seed[32], uint8_t b[32], uint64_t n);
+void kdbx_set_kdf_accel(kdbx_kdf_accel_fn fn);
+bool kdbx_kdf_accel_active(void);
 /* The AES-KDF itself (public for the rounds benchmark when creating a database). */
 void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32]);
 void kdbx_close(kdbx_db *db); /* wipes everything; NULL ok */

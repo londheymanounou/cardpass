@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include "mbedtls/aes.h"
 #include "mbedtls/sha256.h"
 #include "mbedtls/sha512.h"
 #include "kdbx_priv.h"
@@ -185,8 +186,66 @@ static void tamper(const char *name, long off, kdbx_err want)
     remove(path);
 }
 
+/* ---- the optional AES-KDF accelerator hook (the device plugs the AES hardware in here) ---- */
+static int accel_calls, accel_decline_after = -1, last_pct, pct_calls;
+static bool pct_ok;
+static bool test_accel(const uint8_t seed[32], uint8_t b[32], uint64_t n)
+{
+    if (accel_decline_after >= 0 && accel_calls >= accel_decline_after) return false;
+    accel_calls++;
+    mbedtls_aes_context aes;
+    mbedtls_aes_init(&aes);
+    mbedtls_aes_setkey_enc(&aes, seed, 256);
+    for (uint64_t i = 0; i < n; i++) {
+        mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b, b);
+        mbedtls_aes_crypt_ecb(&aes, MBEDTLS_AES_ENCRYPT, b + 16, b + 16);
+    }
+    mbedtls_aes_free(&aes);
+    return true;
+}
+static void test_prog(void *ctx, int pct)
+{
+    (void)ctx;
+    if (pct < last_pct || pct > 100 || (!pct_calls && pct != 0)) pct_ok = false;
+    last_pct = pct;
+    pct_calls++;
+}
+
+static void test_kdf_accel(void)
+{
+    uint8_t seed[32], in[32], ref[32], got[32];
+    for (int i = 0; i < 32; i++) seed[i] = (uint8_t)(i * 7 + 1), in[i] = (uint8_t)(255 - i * 3);
+    static const uint64_t R[] = {0, 1, 49, 999, 123457, 1000000};
+    for (size_t k = 0; k < sizeof R / sizeof *R; k++) {
+        kdbx_set_kdf_accel(NULL);
+        kdbx_aes_kdf(seed, R[k], in, ref);
+        kdbx_set_kdf_accel(test_accel);
+        CHECK(kdbx_kdf_accel_active(), "accelerator reported active");
+        accel_calls = 0;
+        accel_decline_after = -1;
+        last_pct = 0; pct_calls = 0; pct_ok = true;
+        kdbx_set_progress(test_prog, NULL);
+        kdbx_aes_kdf(seed, R[k], in, got);
+        kdbx_set_progress(NULL, NULL);
+        CHECK(!memcmp(ref, got, 32), "accelerated KDF differs for %llu rounds", (unsigned long long)R[k]);
+        CHECK(R[k] == 0 || accel_calls >= 1, "accelerator not used for %llu rounds", (unsigned long long)R[k]);
+        CHECK(pct_ok && last_pct == 100 && pct_calls >= 2, "progress for %llu rounds (last %d, calls %d)", (unsigned long long)R[k], last_pct, pct_calls);
+        /* an accelerator that gives up half way: the portable loop finishes the job */
+        if (R[k] >= 123457) {
+            accel_calls = 0;
+            accel_decline_after = 3;
+            kdbx_aes_kdf(seed, R[k], in, got);
+            CHECK(!memcmp(ref, got, 32), "declining accelerator changes the result (%llu rounds)", (unsigned long long)R[k]);
+        }
+    }
+    kdbx_set_kdf_accel(NULL);
+    CHECK(!kdbx_kdf_accel_active(), "accelerator reported inactive");
+    accel_decline_after = -1;
+}
+
 int main(int argc, char **argv)
 {
+    test_kdf_accel();
     snprintf(dir, sizeof dir, "%s", argc > 1 ? argv[1] : "testdata");
     FILE *m = open_in("manifest.txt", "r");
     if (!m) { printf("no manifest in %s\n", dir); return 1; }
