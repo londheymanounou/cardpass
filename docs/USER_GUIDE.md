@@ -11,7 +11,11 @@ no cloud, and Wi-Fi is only used to set the clock while no database is open.
    derivation function -> *AES-KDF (KDBX 4)*). Argon2 and older KDBX 3 files are refused with a message.
 2. Install the firmware (`dist/CardPass.bin` with an SD launcher such as M5Launcher, or
    `dist/CardPass-full.bin` with M5Burner).
-3. Pick the database, type the master password (and press **Tab** first if it also uses a key file).
+3. Pick the database and type the master password. Press **fn+E** to show or hide what you type (the eye at the
+   right end of the field; it is hidden again on every new screen).
+   If the database also uses a key file, press **Tab**: a file browser opens in the database folder (folders first,
+   `..` or Left goes up, Enter opens a folder or chooses a file; any file on the SD card can be a key file).
+   **fn+Backspace** clears the chosen key file.
 
 ## Keys
 
@@ -24,6 +28,7 @@ The Cardputer has no arrow keys, so **fn** does double duty:
 | `` ` `` (alone) | back |
 | fn + Backspace | delete (the selected entry) |
 | fn + L | lock now |
+| fn + E | show / hide a password while typing (unlock, change password, new database, Wi-Fi) |
 | fn + S | save (in the entry editor) |
 | Tab | menu |
 | ? | key help for the current screen |

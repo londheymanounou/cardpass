@@ -39,6 +39,28 @@ static int list_files(void *c, const char *ext, char names[][64], int max)
     return n;
 }
 static void path_fn(void *c, const char *name, char *out, size_t n) { (void)c; snprintf(out, n, "%s/%s", wdir, name); }
+static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
+{
+    (void)c;
+    char pat[MAX_PATH + 8];
+    snprintf(pat, sizeof pat, rel[0] ? "%s\\%s\\*" : "%s%.0s\\*", wdir, rel);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pat, &fd);
+    int n = 0;
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do {
+        size_t l = strlen(fd.cFileName);
+        if (fd.cFileName[0] == '.' || l >= 64 || n >= max) continue;
+        snprintf(out[n].name, 64, "%s", fd.cFileName);
+        out[n].dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        out[n].size = out[n].dir ? 0 : fd.nFileSizeLow;
+        n++;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return n;
+}
+static void root_path_fn(void *c, const char *rel, char *out, size_t n) { (void)c; snprintf(out, n, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel); }
+static void start_dir_fn(void *c, char *out, size_t n) { (void)c; if (n) out[0] = 0; }
 static bool time_valid = true;
 static int64_t time_off;
 static int64_t now_fn(void *c, bool *valid)
@@ -78,7 +100,8 @@ static void present(void *c);
 static void pump_fn(void *c);
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
                                   save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn,
-                                  bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, NULL};
+                                  bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn,
+                                  list_dir_fn, root_path_fn, start_dir_fn, NULL};
 
 static void present(void *c)
 {
@@ -175,6 +198,19 @@ int main(int argc, char **argv)
             CopyFileA(a, b, FALSE);
         } while (FindNextFileA(h, &fd));
         FindClose(h);
+    }
+
+    {                                                      /* a folder to browse into: keys/ with two key files */
+        char kd[MAX_PATH * 2];
+        snprintf(kd, sizeof kd, "%s\\keys", wdir);
+        CreateDirectoryA(kd, NULL);
+        const char *ks[] = {"key_xml1.keyx", "key_xml2.keyx"};
+        for (int k = 0; k < 2; k++) {
+            char a[MAX_PATH * 2], b[MAX_PATH * 2];
+            snprintf(a, sizeof a, "%s\\%s", src, ks[k]);
+            snprintf(b, sizeof b, "%s\\keys\\%s", wdir, ks[k]);
+            CopyFileA(a, b, FALSE);
+        }
     }
 
     WNDCLASSA wc = {0};

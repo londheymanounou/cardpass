@@ -26,7 +26,7 @@ void ap_account_open(app *a)
 {
     ap_account_free(a);
     if (!(a->acct = calloc(1, sizeof *a->acct))) return;
-    a->acct->kf = a->keyfile ? KF_KEEP : KF_NONE;
+    a->acct->kf = a->keyrel[0] ? KF_KEEP : KF_NONE;
     a->scr = SCR_ACCOUNT;
     a->sel = a->top = 0;
     a->msg[0] = 0;
@@ -56,11 +56,11 @@ static void apply(app *a)
     kdbx_key cur, nk;
     if (strcmp(c->pw, c->pw2)) { snprintf(a->msg, sizeof a->msg, "New passwords differ"); return; }
     if (!c->pw[0] && c->kf == KF_NONE) { snprintf(a->msg, sizeof a->msg, "Set a password or a key file"); return; }
-    if (c->kf == KF_KEEP && !a->keyfile) c->kf = KF_NONE;
+    if (c->kf == KF_KEEP && !a->keyrel[0]) c->kf = KF_NONE;
 
     /* 1. the current credentials must open the file */
-    if (a->keyfile) a->p->path(a->p->ctx, a->keyfiles[a->keyfile - 1], kpath, sizeof kpath);
-    kdbx_err e = make_key(&cur, c->cur, a->keyfile ? kpath : NULL);
+    if (a->keyrel[0]) a->p->root_path(a->p->ctx, a->keyrel, kpath, sizeof kpath);
+    kdbx_err e = make_key(&cur, c->cur, a->keyrel[0] ? kpath : NULL);
     if (!e) {
         FILE *f = fopen(a->path, "rb");
         a->progress = 0;
@@ -100,10 +100,12 @@ static void apply(app *a)
     snprintf(bak, sizeof bak, "%s.bak", a->path);
     remove(bak);                                                  /* still opens with the old password */
     ap_rescan_files(a);
-    a->keyfile = 0;
-    if (nkp) {
+    a->keyrel[0] = 0;
+    if (nkp) {                                                    /* the new key file lives next to the database */
         const char *base = strrchr(nkp, '/') ? strrchr(nkp, '/') + 1 : nkp;
-        for (int i = 0; i < a->nkeyfiles; i++) if (!strcmp(a->keyfiles[i], base)) a->keyfile = i + 1;
+        char dir[120];
+        a->p->start_dir(a->p->ctx, dir, sizeof dir);
+        snprintf(a->keyrel, sizeof a->keyrel, dir[0] ? "%s/%s" : "%.0s%s", dir, base);
     }
     ap_account_free(a);
     ap_go_home(a);
@@ -133,9 +135,9 @@ void ap_account_key(app *a, uint32_t k, bool fn)
         c->editing = true;
         if (k != K_ENTER && !fn) { int len = (int)strlen(b); ap_utf8_append(b, &len, cap, k); }
     } else if (a->sel == A_KEYFILE && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) {
-        int n = a->keyfile ? 3 : 2, d = k == K_LEFT ? n - 1 : 1;    /* KEEP only exists if a key file is in use */
+        int n = a->keyrel[0] ? 3 : 2, d = k == K_LEFT ? n - 1 : 1;    /* KEEP only exists if a key file is in use */
         static const int order3[] = {KF_NONE, KF_KEEP, KF_NEW}, order2[] = {KF_NONE, KF_NEW};
-        const int *o = a->keyfile ? order3 : order2;
+        const int *o = a->keyrel[0] ? order3 : order2;
         int i = 0;
         while (i < n && o[i] != c->kf) i++;
         c->kf = o[(i + d) % n];

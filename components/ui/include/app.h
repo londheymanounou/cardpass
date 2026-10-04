@@ -24,6 +24,8 @@ typedef struct { char ssid[33]; bool secure; int8_t rssi; } app_ap;
 enum { BT_OFF = 0, BT_ADVERTISING, BT_PAIR_CONFIRM, BT_CONNECTED };
 enum { NTP_OK = 0, NTP_ERR_CONNECT = 1, NTP_ERR_PASSWORD = 2, NTP_ERR_SERVER = 3, NTP_ERR_BAD_TIME = 4 };
 
+typedef struct { char name[64]; bool dir; uint32_t size; } app_dirent;   /* one entry of the file browser */
+
 typedef struct {
     /* Names of files in the database folder ending with ext (".kdbx", ".keyx", ".key"). */
     int (*list_files)(void *ctx, const char *ext, char names[][64], int max);
@@ -58,12 +60,16 @@ typedef struct {
     int (*bt_state)(void *ctx, uint32_t *code);
     void (*bt_answer)(void *ctx, bool accept);
     void (*bt_forget)(void *ctx);
+    /* File browser (key files): folders are relative to the SD card root ("" = root), no leading slash. */
+    int (*list_dir)(void *ctx, const char *rel, app_dirent *out, int max);   /* entries (no . .. or hidden), count */
+    void (*root_path)(void *ctx, const char *rel, char *out, size_t n);      /* full path of a root-relative path */
+    void (*start_dir)(void *ctx, char *out, size_t n);                       /* where the browser starts (the database folder) */
     void *ctx;
 } app_platform;
 
 enum {
     SCR_PICKER, SCR_UNLOCK, SCR_HOME, SCR_GROUP, SCR_SEARCH, SCR_ENTRY, SCR_QR,
-    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW, SCR_BT, SCR_SPLASH,
+    SCR_MENU, SCR_EDIT, SCR_GEN, SCR_SETTINGS, SCR_AUDIT, SCR_EXPIRY, SCR_CONFIRM, SCR_CREATE, SCR_HELP, SCR_FIDO, SCR_DRIVE, SCR_TIME, SCR_ACCOUNT, SCR_GROUPS, SCR_VIEW, SCR_BT, SCR_SPLASH, SCR_BROWSE,
 };
 #define APP_QR_MAX_VERSION 11   /* 61 modules: still 2 px/module on 135 px */
 #define APP_QR_BYTES ((((APP_QR_MAX_VERSION) * 4 + 17) * ((APP_QR_MAX_VERSION) * 4 + 17) + 7) / 8 + 1)
@@ -100,8 +106,12 @@ typedef struct {
     /* picker / unlock */
     char dbs[APP_MAX_DBS][64];
     int ndbs;
-    char keyfiles[APP_MAX_DBS][64];
-    int nkeyfiles, keyfile;    /* keyfile: index + 1, 0 = none */
+    char keyrel[160];          /* chosen key file, relative to the SD root ("" = none) */
+    char br_dir[160];          /* file browser: current folder (relative to the SD root) */
+    app_dirent *br_ents;       /* its entries, malloc'd while the browser is open */
+    int br_n;
+    bool pw_show;              /* the eye: show typed passwords; reset whenever the screen changes */
+    int pw_show_scr;
     char dbname[64], path[256];
     char pw[128];
     int pwlen;

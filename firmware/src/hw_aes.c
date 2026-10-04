@@ -25,8 +25,10 @@ bool hw_aes_kdf_accel(const uint8_t seed[32], uint8_t b[32], uint64_t n)
         aes_hal_transform_block(w, w);
         aes_hal_transform_block(w + 4, w + 4);
     }
+    memcpy(b, w, 32);                                      /* the result */
+    uint32_t zero[4] = {0, 0, 0, 0};
+    aes_hal_transform_block(zero, zero);                   /* the data registers still hold the last chain value: overwrite them */
     esp_aes_release_hardware();
-    memcpy(b, w, 32);
     mbedtls_platform_zeroize(w, sizeof w);
     /* Yield for one tick about once a second (idle-task watchdog, other tasks). Not after every chunk: short runs,
      * like the rounds benchmark, must not be inflated by the delays. */

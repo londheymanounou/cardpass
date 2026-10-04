@@ -99,6 +99,11 @@ million rounds); about 60 us per round means the accelerator is off, and the pro
 it in KeePassXC: it must open (this proves the accelerated KDF output is right on the real chip). Also check
 that nothing resets during a long unlock (the idle-task watchdog is fed by a one-tick yield every second).
 
+## 3i. Memory hygiene on the real chip
+`tests/host/memscan.sh` proves the portable code leaves nothing behind on a PC. On the device, the things only the
+chip can show: free heap after lock must return to the same number after many unlock/lock cycles (print it in a
+debug build, as `docs/qemu.md` does), and a USB/BLE capture of typing must show only key codes, nothing else.
+
 ## 4. Numbers the plan wants measured
 
 | what | how | target |

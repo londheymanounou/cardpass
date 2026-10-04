@@ -62,6 +62,7 @@ cmake -S tests/host -B tests/host/build -G Ninja -DCMAKE_TLS_CAINFO=<ca-bundle.c
 cmake --build tests/host/build && (cd tests/host/build && ctest)
 python tools/check_saved.py                   # after ctest (reads build/save_work)
 wsl sh /mnt/d/cardpass/tests/host/asan.sh     # after the configure above
+wsl sh /mnt/d/cardpass/tests/host/memscan.sh  # secret-residue + leak test (no sanitizers: scans the real process memory)
 ```
 `CMAKE_TLS_CAINFO` is only needed where CMake has no CA store (this Windows box: copy
 Git's `mingw64/etc/ssl/certs/ca-bundle.crt` to a path without spaces).

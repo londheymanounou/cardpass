@@ -22,7 +22,7 @@ void hw_display_fade(int pct, int ms) { (void)pct; (void)ms; }
 
 /* ---- keyboard: scripted; a step with key 0 only prints a heap marker ---- */
 typedef struct { uint32_t key; const char *mark; } step;
-enum { NFILES = 5, MAXSTEPS = NFILES * 40 };
+enum { NFILES = 5, STRESS = 30, MAXSTEPS = NFILES * 40 + STRESS * 16 + 8 };
 static step script[MAXSTEPS];
 static unsigned nsteps;
 
@@ -48,6 +48,18 @@ static void build_script(void)
         add('l' | K_FN, NULL);
         add(0, "locked");
     }
+    /* leak stress on the real firmware: unlock, use, lock, 30 times; free heap must come back to the same number */
+    for (int c = 0; c < STRESS; c++) {
+        add(0, c == 0 ? "stress_start" : (c % 10 == 0 ? "stress_cycle_x10" : NULL));
+        add(K_ENTER, NULL);
+        add('t', NULL); add('e', NULL); add('s', NULL); add('t', NULL);
+        add(K_ENTER, NULL);
+        add('a', NULL); add(K_ENTER, NULL);
+        add('r', NULL); add('r', NULL);
+        add(K_ESC, NULL); add(K_ESC, NULL);
+        add('l' | K_FN, NULL);
+    }
+    add(0, "stress_end");
     add(0, "DONE");
 }
 
@@ -59,6 +71,8 @@ static void report(const char *what)
     esp_rom_printf("QEMU   screen=%d db_open=%d msg=\"%s\"\n", scr, open, msg);
     esp_rom_printf("QEMU %s heap=%u min=%u largest=%u\n", what, (unsigned)esp_get_free_heap_size(),
                    (unsigned)esp_get_minimum_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    if (!strcmp(what, "stress_end"))
+        esp_rom_printf("QEMU heap integrity: %s\n", heap_caps_check_integrity_all(true) ? "OK" : "CORRUPT");
 }
 
 void hw_keys_init(void) {}
@@ -71,7 +85,7 @@ void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
     if (i >= nsteps || now_ms < next) return;
     const step *s = &script[i++];
     next = now_ms + 150;
-    if (!s->key) { report(s->mark); return; }
+    if (!s->key) { if (s->mark) report(s->mark); return; }
     on_key(s->key, true);
     on_key(s->key, false);
 }

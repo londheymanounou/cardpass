@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "../../components/ui/app_priv.h"
 #include "miniz.h"
 #ifdef _WIN32
@@ -44,6 +45,32 @@ static int list_files(void *c, const char *ext, char names[][64], int max)
     return n;
 }
 static void path_fn(void *c, const char *name, char *out, size_t n) { (void)c; snprintf(out, n, "%s/%s", wdir, name); }
+/* file browser: the working folder is the "SD root" */
+static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
+{
+    (void)c;
+    char dir[600];
+    snprintf(dir, sizeof dir, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel);
+    DIR *d = opendir(dir);
+    int n = 0;
+    struct dirent *e;
+    while (d && (e = readdir(d)) && n < max) {
+        size_t l = strlen(e->d_name);
+        if (e->d_name[0] == '.' || l >= 64) continue;
+        char full[700];
+        snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+        struct stat st;
+        if (stat(full, &st)) continue;
+        snprintf(out[n].name, 64, "%s", e->d_name);
+        out[n].dir = S_ISDIR(st.st_mode);
+        out[n].size = out[n].dir ? 0 : (uint32_t)st.st_size;
+        n++;
+    }
+    if (d) closedir(d);
+    return n;
+}
+static void root_path_fn(void *c, const char *rel, char *out, size_t n) { (void)c; snprintf(out, n, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel); }
+static void start_dir_fn(void *c, char *out, size_t n) { (void)c; if (n) out[0] = 0; }
 static bool time_valid = true;
 static int64_t now_s = 1790000000;
 static int64_t now_fn(void *c, bool *valid) { (void)c; *valid = time_valid; return now_s; }
@@ -96,7 +123,8 @@ static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
 }
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
                                   save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn,
-                                  bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, NULL};
+                                  bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn,
+                                  list_dir_fn, root_path_fn, start_dir_fn, NULL};
 static int battery_level_now(void) { return battery_level; }
 
 static void draw_band(uint16_t *dst, int y0, int y1)
@@ -708,7 +736,7 @@ int main(int argc, char **argv)
         snap("83_account_keyfile");
         key(K_DOWN);
         key(K_ENTER);
-        CHECK(A.scr == SCR_HOME && strstr(A.msg, "changed") && A.keyfile > 0, "key file added: %s", A.msg);
+        CHECK(A.scr == SCR_HOME && strstr(A.msg, "changed") && A.keyrel[0], "key file added: %s", A.msg);
         {
             char kp[720];
             snprintf(kp, sizeof kp, "%s/chg.keyx", wdir);
@@ -919,16 +947,53 @@ int main(int argc, char **argv)
         CHECK(seen, "new file listed after leaving");
     }
 
-    /* key file: tab cycles */
+    /* key file: Tab opens a file browser (folders first, any file can be chosen, ".." goes up) */
+    {
+        char kd[600];
+        snprintf(kd, sizeof kd, "%s/keys", wdir);
+        MKDIR(kd);
+        copy_as("key_xml2.keyx", "keys/key_xml2.keyx");
+    }
     app_lock(&A);
     int i = 0;
     while (i < A.ndbs && strcmp(A.dbs[i], "keyfile_xml2.kdbx")) i++;
     keys(K_UP, A.sel);
     keys(K_DOWN, i);
     key(K_ENTER);
-    for (int t = 0; t < 4 && (A.keyfile == 0 || strcmp(A.keyfiles[A.keyfile - 1], "key_xml2.keyx")); t++) key(K_TAB);
-    CHECK(A.keyfile > 0 && !strcmp(A.keyfiles[A.keyfile - 1], "key_xml2.keyx"), "key file chosen");
+    CHECK(A.scr == SCR_UNLOCK && !A.keyrel[0], "unlock screen, no key file yet");
     type("test");
+    snap("33a_unlock_masked");
+    key('e' | K_FN);                                       /* the eye: show what was typed */
+    CHECK(A.pw_show, "eye on");
+    snap("33b_unlock_visible");
+    key('e' | K_FN);
+    CHECK(!A.pw_show, "eye off again");
+    key('e' | K_FN);
+    key(K_TAB);
+    CHECK(A.scr == SCR_BROWSE && A.br_n > 5, "browser open (%d entries)", A.br_n);
+    snap("33c_browser_root");
+    CHECK(A.br_ents[0].dir && !strcmp(A.br_ents[0].name, "keys"), "folders first");
+    key(K_ENTER);                                          /* into keys/ */
+    CHECK(!strcmp(A.br_dir, "keys") && A.br_n == 1, "inside keys/ (%s, %d)", A.br_dir, A.br_n);
+    snap("33d_browser_keys_dir");
+    key(K_LEFT);                                           /* back up: lands on the folder we left */
+    CHECK(!A.br_dir[0] && A.sel == 0, "up again, folder selected");
+    key('`');                                              /* cancel */
+    CHECK(A.scr == SCR_UNLOCK && !A.keyrel[0] && !A.pw_show, "cancel keeps no key file, eye reset on the new screen");
+    key(K_TAB);
+    key(K_ENTER);                                          /* keys/ */
+    key(K_DOWN);
+    key(K_ENTER);                                          /* ".." is row 0: row 1 is key_xml2.keyx */
+    CHECK(A.scr == SCR_UNLOCK && !strcmp(A.keyrel, "keys/key_xml2.keyx"), "key file in a folder chosen: '%s'", A.keyrel);
+    key(K_TAB);                                            /* reopens where the key file is, with it selected */
+    CHECK(!strcmp(A.br_dir, "keys") && A.sel == 1, "browser starts at the chosen file");
+    key('`');
+    key(K_BACKSPACE | K_FN);                               /* fn+Backspace: no key file */
+    CHECK(!A.keyrel[0], "key file cleared");
+    key(K_TAB);
+    while (A.sel < A.br_n && strcmp(A.br_ents[A.sel].name, "key_xml2.keyx")) key(K_DOWN);
+    key(K_ENTER);
+    CHECK(!strcmp(A.keyrel, "key_xml2.keyx"), "key file chosen from the root: '%s'", A.keyrel);
     snap("33_unlock_keyfile");
     key(K_ENTER);
     CHECK(A.db && A.scr == SCR_HOME, "key file unlock: %s", A.msg);

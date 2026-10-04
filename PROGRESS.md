@@ -209,6 +209,16 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
+- **Memory paranoia** (`tests/host/memscan.sh`, Linux/WSL): drives the real app through a full session on a database
+  with unique secrets (unlock, reveal, type, auto-type, TOTP, QR, edit + save, change master password, wrong
+  password, lock), then scans the process's own writable memory (heap incl. freed blocks, stack incl. dead stack,
+  libc data, .bss) for the master passwords, entry/protected/TOTP secrets, notes, the composite key, the AES-KDF
+  chain value and the transformed key. Result: nothing left after lock, flat heap over 40 lock/unlock cycles.
+  The scanner is validated three ways: it must find the transformed key while unlocked, find a planted secret in
+  freed heap and in dead stack, and (mutation test, done by hand) it fails when the wipe in `kdbx_close` is removed.
+  The scanner searches the last 12 bytes of each secret because glibc overwrites the first 16 bytes of a freed block.
+  Not covered (hardware): the S3 AES/SHA peripheral registers (the AES fast path now overwrites its data registers
+  with a zero block; SHA registers are overwritten by the HMAC blocks that follow), and the real device's RAM.
 - **AES-KDF accelerator + unlock progress screen**: `kdbx_set_kdf_accel` hook in the portable code; `hw_aes.c` runs
   the S3 AES engine in plain block mode (mbedTLS sends each 16-byte block through GDMA, far slower), with a boot
   selftest against the portable loop. Host-tested (hook, chunking, fallback, progress), QEMU-checked (its AES model

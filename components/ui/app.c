@@ -288,8 +288,6 @@ bool ap_totp_now(app *a, const kdbx_entry *e, const kdbx_field *f, char *out, si
 void ap_rescan_files(app *a)
 {
     a->ndbs = a->p->list_files(a->p->ctx, ".kdbx", a->dbs, APP_MAX_DBS);
-    a->nkeyfiles = a->p->list_files(a->p->ctx, ".keyx", a->keyfiles, APP_MAX_DBS);
-    a->nkeyfiles += a->p->list_files(a->p->ctx, ".key", a->keyfiles + a->nkeyfiles, APP_MAX_DBS - a->nkeyfiles);
 }
 
 void app_lock(app *a)
@@ -317,7 +315,9 @@ void app_lock(app *a)
     a->progress = -1;
     a->progress_t0 = 0;
     ap_rescan_files(a);
-    a->keyfile = 0;
+    a->keyrel[0] = 0;
+    ap_browse_free(a);
+    a->pw_show = false;
     a->scr = SCR_PICKER;
     a->sel = a->top = 0;
     for (int i = 0; i < a->ndbs; i++) /* preselect the last database */
@@ -382,8 +382,8 @@ static void unlock(app *a)
     kdbx_key k;
     FILE *kf = NULL;
     char kpath[256];
-    if (a->keyfile) {
-        a->p->path(a->p->ctx, a->keyfiles[a->keyfile - 1], kpath, sizeof kpath);
+    if (a->keyrel[0]) {
+        a->p->root_path(a->p->ctx, a->keyrel, kpath, sizeof kpath);
         if (!(kf = fopen(kpath, "rb"))) { snprintf(a->msg, sizeof a->msg, "Key file not readable"); ap_mark_all(a); return; }
     }
     /* no password typed + key file = key-file-only database */
@@ -523,6 +523,7 @@ void app_key(app *a, uint32_t key, bool down)
     uint32_t k = K_KEY(key);
     bool fn = key & K_FN;
     a->last_input_ms = a->now_ms;
+    if (a->pw_show_scr != (int)a->scr) a->pw_show = false, a->pw_show_scr = (int)a->scr;   /* hidden again on every new screen */
     ap_anim_key(a);
     if (a->power) {                               /* any key wakes; a key that woke a dark screen does nothing else */
         bool was_off = a->power == 2;
@@ -537,6 +538,11 @@ void app_key(app *a, uint32_t key, bool down)
     }
     if (a->scr == SCR_SPLASH) { if (down) ap_splash_leave(a); return; }   /* any key skips the splash */
     if (!down) return;
+    if (fn && (k == 'e' || k == 'E') && (a->scr == SCR_UNLOCK || a->scr == SCR_ACCOUNT || a->scr == SCR_CREATE || a->scr == SCR_TIME)) {
+        a->pw_show = !a->pw_show;                                      /* the eye next to a password field */
+        ap_mark_all(a);
+        return;
+    }
     if (fn && (k == 'l' || k == 'L') && a->db && !a->fido_active) { app_lock(a); return; } /* fn+L: lock now */
     if (a->scr == SCR_DRIVE) { ap_drive_key(a, k, fn); return; }   /* nothing else is reachable in drive mode */
     if (k == K_TAB && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
@@ -567,7 +573,8 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_UNLOCK: /* ` is a password character here: fn+` goes back */
         if (k == K_ESC) go_back(a);
         else if (k == K_ENTER) unlock(a);
-        else if (k == K_TAB) a->keyfile = (a->keyfile + 1) % (a->nkeyfiles + 1), ap_mark_all(a);
+        else if (k == K_TAB) ap_browse_open(a);
+        else if (k == K_BACKSPACE && fn) a->keyrel[0] = 0, ap_mark_all(a);   /* fn+Backspace: no key file */
         else if (k == K_BACKSPACE) ap_utf8_backspace(a->pw, &a->pwlen), ap_mark_all(a);
         else if (ap_printable(k) && !fn) ap_utf8_append(a->pw, &a->pwlen, sizeof a->pw, k), a->msg[0] = 0, ap_mark_all(a);
         break;
@@ -615,6 +622,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_GROUPS: ap_groups_key(a, k, fn); break;
     case SCR_VIEW: ap_view_key(a, k, fn); break;
     case SCR_BT: ap_bt_key(a, k, fn); break;
+    case SCR_BROWSE: ap_browse_key(a, k, fn); break;
     }
 }
 
@@ -788,6 +796,9 @@ void ap_draw_field(app *a, ui_strip *s, int x, int y, int w, int fh, const char 
 
     ui_fill(s, x, y, w, fh, T->field_bg);
     ui_fill(s, x, y + fh - 2, w, 2, cursor >= 0 ? T->accent : T->dim);
+    bool eye = masked && cursor >= 0;                    /* an active password field has the eye (fn+E) */
+    if (eye) ui_text(s, F, x + w - 14, y + 3, a->pw_show ? ICON_EYE_OFF : ICON_EYE, a->pw_show ? T->accent : T->dim, 14);
+    if (masked && a->pw_show) masked = false;
     char shown[3 * 64 + 1];
     const char *t = text;
     int cpos = cursor;
@@ -804,7 +815,7 @@ void ap_draw_field(app *a, ui_strip *s, int x, int y, int w, int fh, const char 
         cpos = cursor >= 0 ? cn * 3 : -1;
     }
     /* scroll: drop leading characters until the cursor fits */
-    int inner = w - 8;
+    int inner = w - 8 - (eye ? 14 : 0);
     char head[512];
     while (cpos > 0) {
         int n = cpos < (int)sizeof head - 1 ? cpos : (int)sizeof head - 1;
@@ -991,9 +1002,9 @@ static void draw_unlock(app *a, ui_strip *s)
     ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 6, "Master password", T->dim, UI_W);
     int fy = CONTENT_Y + 20;
     ap_draw_field(a, s, PAD * 2, fy, UI_W - PAD * 4, F->height + 6, a->pw, true, a->pwlen);
-    char kf[96];
-    snprintf(kf, sizeof kf, "%s Key file: %s", ICON_FILE, a->keyfile ? a->keyfiles[a->keyfile - 1] : "none");
-    ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 12, kf, a->keyfile ? T->accent : T->dim, UI_W - PAD * 4);
+    char kf[192];
+    snprintf(kf, sizeof kf, "%s Key file: %s", ICON_FILE, a->keyrel[0] ? a->keyrel : "none");
+    ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 12, kf, a->keyrel[0] ? T->accent : T->dim, UI_W - PAD * 4);
     if (a->msg[0]) ui_text(s, F, PAD * 2, fy + F->height + 30, a->msg, T->danger, UI_W - PAD * 4);
 }
 
@@ -1021,6 +1032,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_TIME: snprintf(title, sizeof title, "%s Time", ICON_CLOCK); break;
     case SCR_ACCOUNT: snprintf(title, sizeof title, "Change password"); break;
     case SCR_BT: snprintf(title, sizeof title, "%s Bluetooth", ICON_BLUETOOTH); break;
+    case SCR_BROWSE: snprintf(title, sizeof title, "%s Key file /%.60s", ICON_FOLDER_OPEN, a->br_dir); break;
     case SCR_GROUPS: snprintf(title, sizeof title, "%s Groups", ICON_FOLDER_OPEN); break;
     case SCR_VIEW: snprintf(title, sizeof title, "%s %.40s", ICON_FILE, ap_view_name(a)); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
@@ -1040,7 +1052,7 @@ void app_draw(app *a, ui_strip *s)
         break;
     case SCR_UNLOCK:
         draw_unlock(a, s);
-        hint = a->progress >= 0 ? "" : a->nkeyfiles ? U_ENTER " unlock  tab key file  fn+` back" : U_ENTER " unlock  fn+` back";
+        hint = a->progress >= 0 ? "" : U_ENTER " ok  tab file  fn+E eye  fn+` back";
         break;
     case SCR_HOME:
     case SCR_GROUP:
@@ -1088,6 +1100,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_GROUPS: ap_groups_draw(a, s, &hint); break;
     case SCR_VIEW: ap_view_draw(a, s, &hint); break;
     case SCR_BT: ap_bt_draw(a, s, &hint); break;
+    case SCR_BROWSE: ap_browse_draw(a, s, &hint); break;
     }
     ap_wipe(buf, REVEAL_MAX);
     free(buf);

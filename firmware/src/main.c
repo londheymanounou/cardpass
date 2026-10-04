@@ -74,6 +74,32 @@ static void bt_stop_fn(void *ctx) { hw_ble_stop(); }
 static int bt_state_fn(void *ctx, uint32_t *code) { return hw_ble_state(code); }
 static void bt_answer_fn(void *ctx, bool ok) { hw_ble_answer(ok); }
 static void bt_forget_fn(void *ctx) { hw_ble_forget(); }
+
+/* file browser: folders relative to the SD root, no hidden entries */
+static int list_dir(void *ctx, const char *rel, app_dirent *out, int max)
+{
+    char dir[160];
+    snprintf(dir, sizeof dir, rel[0] ? HW_SD_ROOT "/%s" : HW_SD_ROOT "%.0s", rel);
+    DIR *d = opendir(dir);
+    int n = 0;
+    struct dirent *e;
+    while (d && (e = readdir(d)) && n < max) {
+        size_t l = strlen(e->d_name);
+        if (e->d_name[0] == '.' || l >= sizeof out[0].name || !strcmp(e->d_name, "System Volume Information")) continue;
+        char full[sizeof dir + 1 + 256];                 /* d_name can be 255 bytes */
+        struct stat st;
+        snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+        if (stat(full, &st)) continue;
+        memcpy(out[n].name, e->d_name, l + 1);
+        out[n].dir = S_ISDIR(st.st_mode);
+        out[n].size = out[n].dir ? 0 : (uint32_t)st.st_size;
+        n++;
+    }
+    if (d) closedir(d);
+    return n;
+}
+static void root_path(void *ctx, const char *rel, char *out, size_t n) { snprintf(out, n, rel[0] ? HW_SD_ROOT "/%s" : HW_SD_ROOT "%.0s", rel); }
+static void start_dir(void *ctx, char *out, size_t n) { snprintf(out, n, "%s", HW_DB_DIR + strlen(HW_SD_ROOT) + 1); }
 static void delay_ms(void *ctx, int ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
 
 static bool animations = true;   /* Settings -> Animations: fade the backlight */
@@ -161,7 +187,7 @@ static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t
 
 static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
                                       save_settings, present, pump, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn,
-                                      ntp_sync_fn, bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, NULL};
+                                      ntp_sync_fn, bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, list_dir, root_path, start_dir, NULL};
 
 #ifdef CARDPASS_QEMU          /* QEMU debug build only (docs/qemu.md): progress + heap, no secrets */
 #include "esp_rom_sys.h"
