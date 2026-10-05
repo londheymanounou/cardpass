@@ -10,6 +10,8 @@
 #include "esp_pm.h"
 #include "esp_random.h"
 #include "esp_sleep.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_timer.h"
 #include "hw.h"
 #include "mbedtls/platform_util.h"
@@ -35,6 +37,16 @@ void cp_random(void *buf, size_t n)
         have -= k;
         out += k;
         n -= k;
+    }
+}
+
+void hw_yield_if_due(void)
+{
+    static TickType_t last;
+    TickType_t now = xTaskGetTickCount();
+    if (now - last >= pdMS_TO_TICKS(1000)) {
+        last = now;
+        vTaskDelay(1);
     }
 }
 

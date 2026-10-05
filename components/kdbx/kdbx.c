@@ -20,6 +20,8 @@ const uint8_t KDBX_UUID_AES256[16] = {0x31,0xc1,0xf2,0xe6,0xbf,0x71,0x43,0x50,0x
 const uint8_t KDBX_UUID_CHACHA20[16] = {0xd6,0x03,0x8a,0x2b,0x8b,0x6f,0x4c,0xb5,0xa5,0x24,0x33,0x9a,0x31,0xdb,0xb5,0x9a};
 static const uint8_t UUID_AESKDF4[16] = {0xc9,0xd9,0xf3,0x9a,0x62,0x8a,0x44,0x60,0xbf,0x74,0x0d,0x08,0xc1,0x8a,0x4f,0xea};
 static const uint8_t UUID_AESKDF3[16] = {0x7c,0x02,0xbb,0x82,0x79,0xa7,0x4a,0xc0,0x92,0x7d,0x11,0x4a,0x00,0x64,0x82,0x38};
+const uint8_t KDBX_UUID_ARGON2D[16] = {0xef,0x63,0x6d,0xdf,0x8c,0x29,0x44,0x4b,0x91,0xf7,0xa9,0xa4,0x03,0xe3,0x0a,0x0c};
+const uint8_t KDBX_UUID_ARGON2ID[16] = {0x9e,0x29,0x8b,0x19,0x56,0xdb,0x47,0x73,0xb2,0x3d,0xfc,0x3e,0xc6,0xf0,0xa1,0xe6};
 
 const char *kdbx_strerror(kdbx_err e)
 {
@@ -28,7 +30,7 @@ const char *kdbx_strerror(kdbx_err e)
     case KDBX_ERR_IO: return "Read error or truncated file";
     case KDBX_ERR_FORMAT: return "Not a valid KDBX file";
     case KDBX_ERR_VERSION: return "Unsupported KDBX version (only KDBX 4.x)";
-    case KDBX_ERR_KDF: return "Unsupported KDF (use AES-KDF (KDBX 4), not Argon2)";
+    case KDBX_ERR_KDF: return "Unsupported key derivation settings";
     case KDBX_ERR_CIPHER: return "Unsupported cipher (only AES-256 and ChaCha20)";
     case KDBX_ERR_KEY: return "Wrong password or key file";
     case KDBX_ERR_CORRUPT: return "Database is corrupted";
@@ -36,6 +38,7 @@ const char *kdbx_strerror(kdbx_err e)
     case KDBX_ERR_NOMEM: return "Out of memory (database too large?)";
     case KDBX_ERR_EDIT: return "Invalid edit";
     case KDBX_ERR_REINDEX: return "Saved, but too large to reopen";
+    case KDBX_ERR_SWAP: return "Argon2: not enough space on the SD card";
     }
     return "Unknown error";
 }
@@ -50,7 +53,7 @@ static bool rd(FILE *f, void *b, size_t n) { return fread(b, 1, n, f) == n; }
 static kdbx_err parse_kdf(kdbx_header *h, const uint8_t *p, size_t n)
 {
     const uint8_t *end = p + n;
-    bool uuid = false, seed = false;
+    bool uuid = false, seed = false, lanes = false, mem = false, iter = false, ver = false;
     if (n < 3 || p[1] != 1) return KDBX_ERR_FORMAT; /* VariantDictionary 1.x */
     for (p += 2; p < end && *p;) {
         if (end - p < 9) return KDBX_ERR_FORMAT;
@@ -62,17 +65,45 @@ static kdbx_err parse_kdf(kdbx_header *h, const uint8_t *p, size_t n)
         const uint8_t *v = key + kl + 4;
         if (vl > (size_t)(end - v)) return KDBX_ERR_FORMAT;
         if (kl == 5 && !memcmp(key, "$UUID", 5) && vl == 16) {
-            if (memcmp(v, UUID_AESKDF4, 16) && memcmp(v, UUID_AESKDF3, 16)) return KDBX_ERR_KDF;
+            if (!memcmp(v, UUID_AESKDF4, 16) || !memcmp(v, UUID_AESKDF3, 16)) h->kdf = KDF_AES;
+            else if (!memcmp(v, KDBX_UUID_ARGON2D, 16)) h->kdf = KDF_ARGON2, h->a2_type = KDBX_ARGON2_D;
+            else if (!memcmp(v, KDBX_UUID_ARGON2ID, 16)) h->kdf = KDF_ARGON2, h->a2_type = KDBX_ARGON2_ID;
+            else return KDBX_ERR_KDF;
             uuid = true;
         } else if (kl == 1 && *key == 'R' && type == 0x05 && vl == 8) {
             h->rounds = le64(v);
-        } else if (kl == 1 && *key == 'S' && vl == 32) {
-            memcpy(h->kdf_seed, v, 32);
+        } else if (kl == 1 && *key == 'S' && vl >= 8 && vl <= sizeof h->a2_salt) {
+            memcpy(h->a2_salt, v, vl);                     /* AES-KDF seed or Argon2 salt: sorted out below */
+            h->a2_saltlen = vl;
             seed = true;
+        } else if (kl == 1 && *key == 'P' && type == 0x04 && vl == 4) {
+            h->a2_lanes = le32(v), lanes = true;
+        } else if (kl == 1 && *key == 'M' && type == 0x05 && vl == 8) {
+            h->a2_mem = le64(v), mem = true;
+        } else if (kl == 1 && *key == 'I' && type == 0x05 && vl == 8) {
+            h->a2_iter = le64(v), iter = true;
+        } else if (kl == 1 && *key == 'V' && type == 0x04 && vl == 4) {
+            h->a2_version = le32(v), ver = true;
+        } else if (kl == 1 && *key == 'K' && vl <= sizeof h->a2_secret) {
+            memcpy(h->a2_secret, v, vl), h->a2_secretlen = vl;
+        } else if (kl == 1 && *key == 'A' && vl <= sizeof h->a2_ad) {
+            memcpy(h->a2_ad, v, vl), h->a2_adlen = vl;
+        } else if (kl == 1 && (*key == 'K' || *key == 'A')) {
+            return KDBX_ERR_KDF;                           /* longer than we keep: refuse rather than compute wrong */
         }
         p = v + vl;
     }
-    return uuid && seed ? KDBX_OK : KDBX_ERR_KDF;
+    if (!uuid || !seed) return KDBX_ERR_KDF;
+    if (h->kdf == KDF_AES) {
+        if (h->a2_saltlen != 32) return KDBX_ERR_KDF;
+        memcpy(h->kdf_seed, h->a2_salt, 32);
+        return KDBX_OK;
+    }
+    if (!lanes || !mem || !iter || !ver || h->a2_iter < 1 || h->a2_iter > 0xFFFFFFFFu || h->a2_mem % 1024 ||
+        h->a2_mem / 1024 > KDBX_ARGON2_MAX_KIB || h->a2_lanes < 1 || h->a2_mem / 1024 < 8u * h->a2_lanes ||
+        (h->a2_version != 0x10 && h->a2_version != 0x13))
+        return KDBX_ERR_KDF;
+    return KDBX_OK;
 }
 
 kdbx_err kdbx_read_header(FILE *f, kdbx_header *h)
@@ -158,6 +189,18 @@ static void soft_rounds(const uint8_t seed[32], uint8_t b[32], uint64_t n)
 }
 
 #define KDF_MAX_CHUNK 500000u   /* a chunk is one accelerator call: keeps the hardware lock short and the watchdog fed */
+
+kdbx_err kdbx_kdf(const kdbx_header *h, const uint8_t composite[32], uint8_t tk[32])
+{
+    if (h->kdf == KDF_AES) {
+        kdbx_aes_kdf(h->kdf_seed, h->rounds, composite, tk);
+        return KDBX_OK;
+    }
+    kdbx_argon2_params a = {(uint32_t)h->a2_type, h->a2_version, h->a2_lanes, (uint32_t)h->a2_iter, (uint32_t)(h->a2_mem / 1024),
+                            h->a2_salt, h->a2_secret, h->a2_ad, h->a2_saltlen, h->a2_secretlen, h->a2_adlen};
+    if (progress_cb) progress_cb(progress_ctx, 0);
+    return kdbx_argon2(&a, composite, 32, tk, 32, progress_cb, progress_ctx);
+}
 
 void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32])
 {
@@ -423,7 +466,7 @@ kdbx_err kdbx_check_key(FILE *f, const kdbx_key *key)
     if (!h) return err;
     if ((err = kdbx_read_header(f, h)) != KDBX_OK) goto done;
     if (fread(sums, 1, 64, f) != 64) { err = KDBX_ERR_IO; goto done; }
-    kdbx_aes_kdf(h->kdf_seed, h->rounds, key->composite, tk);
+    if ((err = kdbx_kdf(h, key->composite, tk)) != KDBX_OK) goto done;
     kdbx_derive(h, tk, master, base);
     kdbx_header_hmac(h, base, mac);
     err = mbedtls_ct_memcmp(mac, sums + 32, 32) ? KDBX_ERR_KEY : KDBX_OK;
@@ -451,7 +494,7 @@ kdbx_err kdbx_read_file(FILE *f, const uint8_t *composite, uint8_t tk[32], kdbx_
     mbedtls_sha256(h->raw, h->rawlen, mac, 0);
     if (memcmp(mac, sums, 32)) { err = KDBX_ERR_CORRUPT; goto done; }
 
-    if (composite) kdbx_aes_kdf(h->kdf_seed, h->rounds, composite, tk);
+    if (composite && (err = kdbx_kdf(h, composite, tk)) != KDBX_OK) goto done;
     kdbx_derive(h, tk, master, hmac_base);
     kdbx_header_hmac(h, hmac_base, mac);
     if (mbedtls_ct_memcmp(mac, sums + 32, 32)) { err = KDBX_ERR_KEY; goto done; }

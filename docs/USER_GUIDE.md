@@ -1,14 +1,19 @@
 # CardPass user guide
 
-CardPass is an offline KeePass (KDBX 4, AES-KDF) password manager for the M5Stack Cardputer ADV.
+CardPass is an offline KeePass (KDBX 4) password manager for the M5Stack Cardputer ADV.
 It opens the same `.kdbx` files as KeePassXC and KeePass 2. Nothing is ever sent anywhere: there is
 no cloud, and Wi-Fi is only used to set the clock while no database is open.
 
 ## Getting started
 
 1. Put your database on the SD card, in a folder named `cardpass` (files in the card's root are found too).
-   Databases must be **KDBX 4 with AES-KDF** (in KeePassXC: Database Settings -> Security -> Key
-   derivation function -> *AES-KDF (KDBX 4)*). Argon2 and older KDBX 3 files are refused with a message.
+   Databases must be **KDBX 4** (KeePassXC and KeePass 2 default). Both key derivations work:
+   - **AES-KDF**: fast on the Cardputer (it has AES hardware).
+   - **Argon2d / Argon2id** (the KeePassXC default): works, but Argon2 is *designed* to need a lot of memory and
+     the Cardputer has very little, so the memory goes to an encrypted file on the SD card. That is slow: with
+     KeePass' defaults (64 MiB, 10+ iterations) an unlock can take tens of minutes. For a usable unlock, set
+     Argon2 to about **16-32 MiB and 2-3 iterations** in KeePassXC (Database Settings -> Security), or switch to
+     AES-KDF. The progress screen shows the time left. Older KDBX 3 files are refused with a message.
 2. Install the firmware (`dist/CardPass.bin` with an SD launcher such as M5Launcher, or
    `dist/CardPass-full.bin` with M5Burner).
 3. Pick the database and type the master password. Press **fn+E** to show or hide what you type (the eye at the
@@ -111,6 +116,7 @@ Wi-Fi (scans networks, remembers up to 4; only available while the database is l
 
 ## Limits
 
-KDBX 4 with AES-KDF only (Argon2 is refused). Attachments and custom icons are kept untouched but not
+KDBX 4 only. Argon2 needs free space on the SD card (as much as its memory setting, e.g. 64 MB) and time.
+Attachments and custom icons are kept untouched but not
 displayed (text attachments can be read). No database merging. Very large databases are limited by the
 Cardputer's RAM (roughly 800-1,000 entries; `docs/first-hardware.md` explains how to measure yours).

@@ -17,7 +17,7 @@ if [ ! -f $B/libdeps.a ]; then
         ../../$D/miniz-src/miniz.c ../../$D/mbedtls-src/library/*.c) || exit 1
     ar rcs $B/libdeps.a $B/*.o && rm -f $B/*.o
 fi
-KDBX="$C/kdbx/kdbx.c $C/kdbx/key.c $C/kdbx/xml_index.c $C/kdbx/save.c $C/kdbx/yxml/yxml.c"
+KDBX="$C/kdbx/kdbx.c $C/kdbx/key.c $C/kdbx/xml_index.c $C/kdbx/save.c $C/kdbx/argon2.c $C/kdbx/yxml/yxml.c"
 
 run() { name=$1; shift; gcc $CFLAGS "$@" $B/libdeps.a -lm -o $B/$name && echo "== $name" && ASAN_OPTIONS=detect_leaks=1 $B/$name $ARGS; }
 ARGS=../../testdata run test_kdbx test_kdbx.c $KDBX host_random.c
@@ -34,3 +34,4 @@ UI="$C/ui/gfx.c $C/ui/app.c $C/ui/app_edit.c $C/ui/app_tools.c $C/ui/app_fido.c 
 mkdir -p $B/renders
 ARGS="../../testdata $B/renders" run render render.c $UI $KDBX host_random.c $C/search/search.c $C/strength/strength.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c $FIDO
 ARGS= run test_settings test_settings.c $C/ui/settings.c -I$C/ui/include
+ARGS="../../testdata $B" run test_argon2 test_argon2.c $KDBX host_random.c

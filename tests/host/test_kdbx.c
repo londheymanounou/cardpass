@@ -73,7 +73,7 @@ static void check_expected(const char *name, const kdbx_key *key, const kdbx_db 
     FILE *db_f = open_in(name, "rb");
     CHECK(kdbx_read_header(db_f, &h) == KDBX_OK, "header");
     fclose(db_f);
-    kdbx_aes_kdf(h.kdf_seed, h.rounds, key->composite, tk);
+    CHECK(kdbx_kdf(&h, key->composite, tk) == KDBX_OK, "%s: key derivation", name);
     memcpy(buf, h.master_seed, 32);
     memcpy(buf + 32, tk, 32);
     buf[64] = 1;
@@ -146,7 +146,6 @@ static kdbx_err expect_code(const char *s)
 {
     if (!strcmp(s, "ok")) return KDBX_OK;
     if (!strcmp(s, "bad_key")) return KDBX_ERR_KEY;
-    if (!strcmp(s, "argon2")) return KDBX_ERR_KDF;
     if (!strcmp(s, "version")) return KDBX_ERR_VERSION;
     return -1;
 }
@@ -274,6 +273,35 @@ int main(int argc, char **argv)
         kdbx_key_wipe(&key);
     }
     fclose(m);
+
+    /* Argon2 through the encrypted swap file (what the Cardputer does): same database, same contents */
+    {
+        static const char *const a2[] = {"argon2d_small.kdbx", "argon2id_small.kdbx", "argon2id_kpxc.kdbx"};
+        char swp[1024];
+        snprintf(swp, sizeof swp, "%s/kdbx_test.swp", dir);
+        kdbx_set_argon2_memory(0, swp, 24 * 1024);
+        for (size_t i = 0; i < sizeof a2 / sizeof *a2; i++) {
+            kdbx_key key;
+            kdbx_key_init(&key, "test", 4, NULL);
+            kdbx_db *db = NULL;
+            kdbx_err e = open_with(a2[i], &key, &db);
+            printf("%-20s swap     -> %s\n", a2[i], kdbx_strerror(e));
+            CHECK(e == KDBX_OK, "%s through swap: %s", a2[i], kdbx_strerror(e));
+            if (e == KDBX_OK) check_expected(a2[i], &key, db);
+            kdbx_close(db);
+            kdbx_key_wipe(&key);
+            FILE *sw = fopen(swp, "rb");
+            CHECK(!sw, "swap file left behind");
+            if (sw) fclose(sw);
+        }
+        kdbx_set_argon2_memory(0, NULL, 0);                   /* no RAM, no swap: refused cleanly */
+        kdbx_key key;
+        kdbx_key_init(&key, "test", 4, NULL);
+        kdbx_db *db = NULL;
+        CHECK(open_with("argon2id_small.kdbx", &key, &db) == KDBX_ERR_NOMEM && !db, "Argon2 without memory -> out of memory");
+        kdbx_key_wipe(&key);
+        kdbx_set_argon2_memory((size_t)-1, NULL, 0);
+    }
 
     /* Damage detection */
     tamper("aes.kdbx", 60, KDBX_ERR_CORRUPT);    /* master seed -> header SHA-256 mismatch */

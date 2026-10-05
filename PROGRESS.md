@@ -209,6 +209,19 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
+- **Argon2** (`components/kdbx/argon2.c`): Argon2d / Argon2id (Argon2i too), versions 0x10 / 0x13, BLAKE2b, KDBX 4
+  parameters (S, P, M, I, V, K, A). Memory in RAM when it fits, else an ENCRYPTED SD swap file (AES-256-CTR, random
+  one-time key; processing-order layout so pass 0 appends and "rewritten this pass" = index < current; cache of
+  recent blocks, batched writes, read-ahead). Saving keeps the parameters; a new password gives a new salt (still
+  Argon2) unless a round count is chosen, which switches the database to AES-KDF.
+  Verified: 50 vectors from argon2-cffi (reference C code) + RFC 9106 (secret + data) + 45 BLAKE2b, each in RAM and
+  twice through swap; KeePass' default argon2.kdbx (64 MiB, 14 passes), pykeepass and KeePassXC-saved Argon2 files
+  open with exact contents in RAM and swap; saved / rekeyed Argon2 files open in pykeepass and KeePassXC; UI unlock
+  through swap; memscan: no key, composite key or Argon2 memory block left after lock (RAM and swap), and it fails
+  when either wipe is removed (mutation tests; the test heap is configured like the ESP32's: no mmap, no trim).
+  Bug caught on the way: a dangling `else` after turning the rekey KDF call into an error check made password changes
+  write files that opened with neither password (the existing rekey test failed at once). Device speed: unmeasured;
+  KeePass defaults (64 MiB, 10+ passes) will take tens of minutes on SD swap.
 - **Memory paranoia** (`tests/host/memscan.sh`, Linux/WSL): drives the real app through a full session on a database
   with unique secrets (unlock, reveal, type, auto-type, TOTP, QR, edit + save, change master password, wrong
   password, lock), then scans the process's own writable memory (heap incl. freed blocks, stack incl. dead stack,

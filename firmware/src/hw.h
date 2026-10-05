@@ -64,6 +64,9 @@ int hw_ntp_sync(const char *ssid, const char *pass, int64_t *unix_s);   /* NTP_*
 bool hw_aes_kdf_accel(const uint8_t seed[32], uint8_t b[32], uint64_t n);
 bool hw_aes_selftest(void);
 
+/* Long computations (KDF, Argon2): yield one tick about once a second so the idle-task watchdog stays fed. */
+void hw_yield_if_due(void);
+
 /* misc */
 int hw_battery_percent(void);                             /* -1 unknown */
 uint32_t hw_millis(void);

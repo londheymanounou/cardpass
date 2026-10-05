@@ -22,7 +22,9 @@ void hw_display_fade(int pct, int ms) { (void)pct; (void)ms; }
 
 /* ---- keyboard: scripted; a step with key 0 only prints a heap marker ---- */
 typedef struct { uint32_t key; const char *mark; } step;
-enum { NFILES = 5, STRESS = 30, MAXSTEPS = NFILES * 40 + STRESS * 16 + 8 };
+enum { NFILES = 5, STRESS = 30, MAXSTEPS = NFILES * 40 + STRESS * 16 + 40 };
+#define SEL_ARGON2 0xFFFFF001u                      /* pseudo key: select zz_argon2.kdbx in the picker */
+void qemu_select_db(const char *name);
 static step script[MAXSTEPS];
 static unsigned nsteps;
 
@@ -60,6 +62,16 @@ static void build_script(void)
         add('l' | K_FN, NULL);
     }
     add(0, "stress_end");
+    /* Argon2id, 512 KiB: over the 128 KiB RAM limit, so through the encrypted swap file on the FAT card */
+    add(SEL_ARGON2, NULL);
+    add(K_ENTER, NULL);
+    add('t', NULL); add('e', NULL); add('s', NULL); add('t', NULL);
+    add(K_ENTER, NULL);
+    add(0, "argon2_unlocked");
+    add('a', NULL); add(K_ENTER, NULL); add('r', NULL); add('r', NULL);
+    add(K_ESC, NULL); add(K_ESC, NULL);
+    add('l' | K_FN, NULL);
+    add(0, "argon2_locked");
     add(0, "DONE");
 }
 
@@ -86,6 +98,7 @@ void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
     const step *s = &script[i++];
     next = now_ms + 150;
     if (!s->key) { if (s->mark) report(s->mark); return; }
+    if (s->key == SEL_ARGON2) { qemu_select_db("zz_argon2.kdbx"); return; }
     on_key(s->key, true);
     on_key(s->key, false);
 }

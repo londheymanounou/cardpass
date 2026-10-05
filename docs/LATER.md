@@ -31,6 +31,13 @@ probably dominates. Unlock runs the KDF once; a normal save reuses the derived k
 
 ## 2. Argon2id through an encrypted SD swap
 
+DONE (components/kdbx/argon2.c): Argon2d / Argon2id / Argon2i, versions 0x10 and 0x13, RAM when it fits (<= 128 KiB on
+the device) else the encrypted swap file `cardpass/.argon2.swp` (AES-256-CTR, one-time key, deleted after; a leftover
+from a power cut is deleted at boot). Implemented from the list below: processing-order layout (append-only pass 0,
+"already rewritten" = index < current), cache of recent blocks, batched writes, sequential read-ahead. Not done:
+raw-sector access (FAT seeks remain), prefetching the data-independent half, cancel with Esc. Device speed: unmeasured.
+The original plan follows.
+
 Argon2id needs tens of MiB; the device has ~330 KB of free heap at best and no PSRAM. The only way to open normal
 Argon2 databases is to keep the blocks on the SD card, encrypted with a random per-unlock key that lives only in RAM
 and is wiped afterwards (AES-CTR with nonce = block index + pass number, so no keystream is reused). This needs an

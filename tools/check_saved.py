@@ -40,7 +40,8 @@ def kpxc_export(path, pw, keyfile=None):
 NOOP = [("aes.kdbx", "test", None), ("chacha.kdbx", "test", None), ("aes_kpxc.kdbx", "test", None),
         ("chacha_kpxc.kdbx", "test", None), ("utf8pw.kdbx", "pässwörd€", None),
         ("keyfile_xml2.kdbx", "test", "key_xml2.keyx"), ("keyfile_only.kdbx", None, "key_xml2.keyx"),
-        ("big1000.kdbx", "test", None), ("multiblock.kdbx", "test", None)]
+        ("big1000.kdbx", "test", None), ("multiblock.kdbx", "test", None), ("argon2.kdbx", "test", None),
+        ("argon2d_small.kdbx", "test", None), ("argon2id_small.kdbx", "test", None), ("argon2id_kpxc.kdbx", "test", None)]
 
 for name, pw, kf in NOOP:
     kfp = TD / kf if kf else None
@@ -54,6 +55,16 @@ for name, pw, kf in NOOP:
         check(ra == 0 and rb == 0, f"{name}: keepassxc-cli export failed ({rb})")
         check(xa == xb, f"{name}: KeePassXC export differs")
     print("noop ok" if not fails else "noop", name)
+
+# ---- Argon2 rekeyed: still Argon2 (new salt), and switched to AES-KDF ----
+for name in ("a2_rekey_argon.kdbx", "a2_rekey_aes.kdbx"):
+    a = PyKeePass(str(TD / "argon2id_small.kdbx"), password="test")
+    b = PyKeePass(str(WD / name), password="n3w-a2")
+    check(canon(a) == canon(b), f"{name}: content differs after the rekey")
+    if KPXC:
+        rb, _ = kpxc_export(WD / name, "n3w-a2")
+        check(rb == 0, f"{name}: KeePassXC cannot open it ({rb})")
+    print("rekey ok" if not fails else "rekey", name)
 
 # ---- edit.kdbx (final password after rekey) ----
 kp = PyKeePass(str(WD / "edit.kdbx"), password="n3w pässword")

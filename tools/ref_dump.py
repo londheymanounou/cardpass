@@ -9,6 +9,7 @@ Test DB passwords are not secrets.
 import base64, hashlib, hmac, re, struct
 from pathlib import Path
 from Cryptodome.Cipher import AES
+from argon2.low_level import Type, hash_secret_raw
 from pykeepass import PyKeePass
 
 D = Path(__file__).resolve().parent.parent / "testdata"
@@ -30,7 +31,11 @@ DBS = [
     ("multiblock.kdbx", "test", None, "ok"),
     ("aes.kdbx", "wrong", None, "bad_key"),
     ("keyfile_xml2.kdbx", "test", None, "bad_key"),
-    ("argon2.kdbx", "test", None, "argon2"),
+    ("argon2.kdbx", "test", None, "ok"),           # KeePass default: Argon2d, 64 MiB, 14 passes
+    ("argon2d_small.kdbx", "test", None, "ok"),
+    ("argon2id_small.kdbx", "test", None, "ok"),
+    ("argon2id_kpxc.kdbx", "test", None, "ok"),
+    ("argon2id_small.kdbx", "wrong", None, "bad_key"),
     ("kdbx31.kdbx", "test", None, "version"),
     ("kdbx31_kpxc.kdbx", "test", None, "version"),
 ]
@@ -81,11 +86,17 @@ def ref(name, password, keyfile):
     if keyfile:
         parts.append(keyfile_hash((D / keyfile).read_bytes()))
     composite = hashlib.sha256(b"".join(parts)).digest()
-    aes = AES.new(kdf["S"], AES.MODE_ECB)
-    t = composite
-    for _ in range(kdf["R"]):
-        t = aes.encrypt(t)
-    transformed = hashlib.sha256(t).digest()
+    argon = {bytes.fromhex("ef636ddf8c29444b91f7a9a403e30a0c"): Type.D, bytes.fromhex("9e298b1956db4773b23dfc3ec6f0a1e6"): Type.ID}
+    if kdf["$UUID"] in argon:   # Argon2: the reference C implementation (argon2-cffi)
+        u32 = lambda b: struct.unpack("<I", b)[0]
+        transformed = hash_secret_raw(composite, kdf["S"], time_cost=kdf["I"], memory_cost=kdf["M"] // 1024,
+                                      parallelism=u32(kdf["P"]), hash_len=32, type=argon[kdf["$UUID"]], version=u32(kdf["V"]))
+    else:
+        aes = AES.new(kdf["S"], AES.MODE_ECB)
+        t = composite
+        for _ in range(kdf["R"]):
+            t = aes.encrypt(t)
+        transformed = hashlib.sha256(t).digest()
     seed = fields[4]
     hmac_base = hashlib.sha512(seed + transformed + b"\x01").digest()
     master = hashlib.sha256(seed + transformed).digest()

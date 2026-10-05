@@ -284,7 +284,7 @@ int main(int argc, char **argv)
     MKDIR(odir);
     MKDIR(wdir);
     char p[600];
-    const char *dbs[] = {"aes_kpxc.kdbx", "argon2.kdbx", "big1000.kdbx", "passkeys.kdbx", "keyfile_xml2.kdbx", "key_xml2.keyx"};
+    const char *dbs[] = {"aes_kpxc.kdbx", "argon2.kdbx", "big1000.kdbx", "passkeys.kdbx", "keyfile_xml2.kdbx", "key_xml2.keyx", "argon2id_small.kdbx"};
     for (size_t i = 0; i < sizeof dbs / sizeof *dbs; i++) copy(dbs[i]);
     copy_as("chacha_kpxc.kdbx", "chg.kdbx");
     snprintf(p, sizeof p, "%s/chg.keyx", wdir);
@@ -1073,6 +1073,27 @@ int main(int argc, char **argv)
             key('r');
             CHECK(!A.revealed, "second press hides it again");
         }
+        app_lock(&A);
+    }
+
+    /* Argon2id through the UI, memory in the encrypted swap file (as on the device): progress shown, unlocks */
+    {
+        char swp[600];
+        snprintf(swp, sizeof swp, "%s/.argon2.swp", wdir);
+        kdbx_set_argon2_memory(0, swp, 32 * 1024);
+        app_lock(&A);
+        int before = presents;
+        open_db("argon2id_small.kdbx", "test");
+        CHECK(A.db && A.scr == SCR_HOME, "Argon2id unlock through swap: %s", A.msg);
+        CHECK(presents - before > 3, "Argon2 progress was shown (%d frames)", presents - before);
+        snap("106_argon2_home");
+        FILE *sw = fopen(swp, "rb");
+        CHECK(!sw, "swap file deleted after unlocking");
+        if (sw) fclose(sw);
+        app_lock(&A);
+        open_db("argon2id_small.kdbx", "wrong");
+        CHECK(!A.db && strstr(A.msg, "Wrong"), "Argon2 wrong password: %s", A.msg);
+        kdbx_set_argon2_memory((size_t)-1, NULL, 0);
         app_lock(&A);
     }
 

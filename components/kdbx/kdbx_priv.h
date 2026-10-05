@@ -24,7 +24,7 @@ void tbuf_free(tbuf *t);
 
 /* ---- outer header ---- */
 enum { CIPHER_AES256 = KDBX_AES256, CIPHER_CHACHA20 = KDBX_CHACHA20 };
-extern const uint8_t KDBX_UUID_AES256[16], KDBX_UUID_CHACHA20[16];
+extern const uint8_t KDBX_UUID_AES256[16], KDBX_UUID_CHACHA20[16], KDBX_UUID_ARGON2D[16], KDBX_UUID_ARGON2ID[16];
 
 typedef struct {
     uint8_t raw[4096];        /* header bytes, for SHA-256 + HMAC */
@@ -34,9 +34,31 @@ typedef struct {
     uint8_t master_seed[32];
     uint8_t iv[16];
     size_t ivlen;
-    uint8_t kdf_seed[32];
+    int kdf;                  /* KDF_AES or KDF_ARGON2 */
+    uint8_t kdf_seed[32];     /* AES-KDF */
     uint64_t rounds;
+    /* Argon2 (KDBX: $UUID Argon2d / Argon2id, S salt, P lanes, M bytes, I passes, V version, K secret, A data) */
+    int a2_type;              /* KDBX_ARGON2_D / _ID */
+    uint32_t a2_lanes, a2_version;
+    uint64_t a2_mem, a2_iter;
+    uint8_t a2_salt[64], a2_secret[64], a2_ad[64];
+    uint32_t a2_saltlen, a2_secretlen, a2_adlen;
 } kdbx_header;
+enum { KDF_AES = 0, KDF_ARGON2 = 1 };
+
+/* ---- Argon2 (argon2.c) ---- */
+enum { KDBX_ARGON2_D = 0, KDBX_ARGON2_I = 1, KDBX_ARGON2_ID = 2 };
+#define KDBX_ARGON2_MAX_KIB (1024u * 1024u)   /* 1 GiB: far beyond anything a Cardputer can do anyway */
+typedef struct {
+    uint32_t type, version, lanes, passes, mem_kib;
+    const uint8_t *salt, *secret, *ad;
+    size_t saltlen, secretlen, adlen;
+} kdbx_argon2_params;
+kdbx_err kdbx_argon2(const kdbx_argon2_params *a, const uint8_t *pw, size_t pwlen, uint8_t *out, uint32_t outlen,
+                     void (*prog)(void *ctx, int pct), void *pctx);
+void kdbx_blake2b(uint8_t *out, size_t outlen, const void *in, size_t inlen);
+/* The database's KDF (AES-KDF or Argon2) on the composite key: the transformed key. */
+kdbx_err kdbx_kdf(const kdbx_header *h, const uint8_t composite[32], uint8_t tk[32]);
 
 kdbx_err kdbx_read_header(FILE *f, kdbx_header *h);
 void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32]);

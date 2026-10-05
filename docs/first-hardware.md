@@ -99,6 +99,11 @@ million rounds); about 60 us per round means the accelerator is off, and the pro
 it in KeePassXC: it must open (this proves the accelerated KDF output is right on the real chip). Also check
 that nothing resets during a long unlock (the idle-task watchdog is fed by a one-tick yield every second).
 
+## 3j. Argon2 on the card
+Unlock `testdata/argon2id_small.kdbx` (512 KiB: goes through the swap file) and `argon2d_small.kdbx`, then a real
+KeePassXC database with 16-32 MiB / 2-3 iterations. Time them (seconds per MiB per pass is the number to know), check
+`cardpass/.argon2.swp` is gone afterwards, and that a long unlock never trips the watchdog.
+
 ## 3i. Memory hygiene on the real chip
 `tests/host/memscan.sh` proves the portable code leaves nothing behind on a PC. On the device, the things only the
 chip can show: free heap after lock must return to the same number after many unlock/lock cycles (print it in a

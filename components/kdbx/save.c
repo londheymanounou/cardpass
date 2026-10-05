@@ -1122,20 +1122,44 @@ static kdbx_err out_end(out_t *o)
 
 /* New header from the original: fresh master seed and IV (and KDF seed when
  * rekeying), gzip on; other fields (cipher, custom data) copied. */
+/* VariantDictionary items */
+static size_t vd_bytes(uint8_t *b, size_t t, const char *k, const uint8_t *v, size_t vl)
+{
+    size_t kl = strlen(k);
+    b[t] = 0x42;
+    put_le32(b + t + 1, (uint32_t)kl);
+    memcpy(b + t + 5, k, kl);
+    put_le32(b + t + 5 + kl, (uint32_t)vl);
+    memcpy(b + t + 9 + kl, v, vl);
+    return t + 9 + kl + vl;
+}
+static size_t vd_num(uint8_t *b, size_t t, uint8_t type, const char *k, uint64_t v)
+{
+    size_t kl = strlen(k), vl = type == 0x05 ? 8 : 4;
+    b[t] = type;
+    put_le32(b + t + 1, (uint32_t)kl);
+    memcpy(b + t + 5, k, kl);
+    put_le32(b + t + 5 + kl, (uint32_t)vl);
+    if (vl == 8) put_le64(b + t + 9 + kl, v);
+    else put_le32(b + t + 9 + kl, (uint32_t)v);
+    return t + 9 + kl + vl;
+}
+
 static kdbx_err build_header(const kdbx_header *old, kdbx_header *nh, bool new_kdf, uint64_t rounds)
 {
     *nh = *old;
     cp_random(nh->master_seed, 32);
     cp_random(nh->iv, nh->ivlen);
-    if (new_kdf) {
+    if (new_kdf) {                                     /* rekey: fresh salt; a round count switches to AES-KDF */
+        if (rounds) nh->kdf = KDF_AES, nh->rounds = rounds;
         cp_random(nh->kdf_seed, 32);
-        if (rounds) nh->rounds = rounds;
+        if (nh->kdf == KDF_ARGON2) cp_random(nh->a2_salt, nh->a2_saltlen);
     }
     nh->gzip = true;
 
     size_t pos = 12, np = 12;
     while (pos + 5 <= old->rawlen) {
-        uint8_t id = old->raw[pos], tmp[128];
+        uint8_t id = old->raw[pos], tmp[400];
         uint32_t len = le32(old->raw + pos + 1);
         const uint8_t *src = old->raw + pos + 5;
         pos += 5 + len;
@@ -1149,6 +1173,20 @@ static kdbx_err build_header(const kdbx_header *old, kdbx_header *nh, bool new_k
         } else if (id == 7) {
             src = nh->iv;
             len = (uint32_t)nh->ivlen;
+        } else if (id == 11 && nh->kdf == KDF_ARGON2) {
+            size_t t = 0;
+            tmp[t++] = 0; tmp[t++] = 1;
+            t = vd_bytes(tmp, t, "$UUID", nh->a2_type == KDBX_ARGON2_D ? KDBX_UUID_ARGON2D : KDBX_UUID_ARGON2ID, 16);
+            t = vd_bytes(tmp, t, "S", nh->a2_salt, nh->a2_saltlen);
+            t = vd_num(tmp, t, 0x04, "P", nh->a2_lanes);
+            t = vd_num(tmp, t, 0x05, "M", nh->a2_mem);
+            t = vd_num(tmp, t, 0x05, "I", nh->a2_iter);
+            t = vd_num(tmp, t, 0x04, "V", nh->a2_version);
+            if (nh->a2_secretlen) t = vd_bytes(tmp, t, "K", nh->a2_secret, nh->a2_secretlen);
+            if (nh->a2_adlen) t = vd_bytes(tmp, t, "A", nh->a2_ad, nh->a2_adlen);
+            tmp[t++] = 0;
+            src = tmp;
+            len = (uint32_t)t;
         } else if (id == 11) {
             size_t t = 0;
             tmp[t++] = 0; tmp[t++] = 1;
@@ -1343,7 +1381,8 @@ static kdbx_edit *edits_dup(const kdbx_edit *in, size_t n, size_t *size)
 kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, size_t nedits, int64_t now,
                    const kdbx_key *newkey, uint64_t rounds)
 {
-    const kdbx_db *db = *dbp;
+    const kdbx_db *db = dbp ? *dbp : NULL;
+    if (!db || !path) return KDBX_ERR_EDIT;
     kdbx_edit *edits = NULL;
     size_t esz = 0;
     bool freed = false, committed = false;
@@ -1398,8 +1437,11 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, s
 
     /* new header + keys */
     if ((err = build_header(h, nh, newkey != NULL, rounds)) != KDBX_OK) goto done;
-    if (newkey) kdbx_aes_kdf(nh->kdf_seed, nh->rounds, newkey->composite, tk_new);
-    else memcpy(tk_new, tk, 32);
+    if (newkey) {
+        if ((err = kdbx_kdf(nh, newkey->composite, tk_new)) != KDBX_OK) goto done;
+    } else {
+        memcpy(tk_new, tk, 32);
+    }
     if (!(out = fopen(tmp, "wb"))) { err = KDBX_ERR_IO; goto done; }
     if ((err = out_begin(o, out, nh, tk_new)) != KDBX_OK) goto done;
     s->pass2 = true;

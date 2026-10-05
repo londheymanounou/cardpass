@@ -30,14 +30,7 @@ bool hw_aes_kdf_accel(const uint8_t seed[32], uint8_t b[32], uint64_t n)
     aes_hal_transform_block(zero, zero);                   /* the data registers still hold the last chain value: overwrite them */
     esp_aes_release_hardware();
     mbedtls_platform_zeroize(w, sizeof w);
-    /* Yield for one tick about once a second (idle-task watchdog, other tasks). Not after every chunk: short runs,
-     * like the rounds benchmark, must not be inflated by the delays. */
-    static TickType_t last_yield;
-    TickType_t now = xTaskGetTickCount();
-    if (now - last_yield >= pdMS_TO_TICKS(1000)) {
-        last_yield = now;
-        vTaskDelay(1);
-    }
+    hw_yield_if_due();                                     /* not after every chunk: the rounds benchmark stays honest */
     return true;
 }
 

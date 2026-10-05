@@ -192,6 +192,7 @@ static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, ba
 #ifdef CARDPASS_QEMU          /* QEMU debug build only (docs/qemu.md): progress + heap, no secrets */
 #include "esp_rom_sys.h"
 #include "esp_heap_caps.h"
+void qemu_select_db(const char *name) { for (int i = 0; i < A.ndbs; i++) if (!strcmp(A.dbs[i], name)) A.sel = i; }
 const char *qemu_state(int *scr, int *open) { *scr = A.scr; *open = A.db != NULL; return A.msg; }
 #define MARK(n) esp_rom_printf("QEMU %s heap=%u min=%u\n", n, (unsigned)esp_get_free_heap_size(), (unsigned)esp_get_minimum_free_heap_size())
 #else
@@ -203,6 +204,9 @@ void app_main(void)
     MARK("start");
     bool aes_ok = hw_aes_selftest();                 /* accelerated AES-KDF only if it matches the portable loop */
     if (aes_ok) kdbx_set_kdf_accel(hw_aes_kdf_accel);
+    /* Argon2: up to 128 KiB in RAM, anything bigger in an encrypted swap file on the card (one-time key) */
+    kdbx_set_argon2_memory(128 * 1024, HW_DB_DIR "/.argon2.swp", 32 * 1024);
+    kdbx_set_idle_hook(hw_yield_if_due);
 #ifdef CARDPASS_QEMU
     {
         uint8_t sd[32] = {1, 2, 3}, in[32] = {9, 8, 7}, o1[32], o2[32];
@@ -228,6 +232,7 @@ void app_main(void)
     hw_keys_init();
     MARK("keys");
     hw_sd_mount();
+    remove(HW_DB_DIR "/.argon2.swp");              /* left by a power cut mid-unlock: unreadable (key gone), just space */
     MARK("sd");
     hw_usb_init();
     MARK("usb");

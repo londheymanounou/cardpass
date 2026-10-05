@@ -132,6 +132,55 @@ static kdbx_err save(kdbx_db **db, const char *path, const kdbx_edit *ed, size_t
     return kdbx_save(db, path, ed, n, NOW, NULL, 0);
 }
 
+static void noop(const char *name, const char *pw, const char *keyfile);
+
+/* Argon2 databases: a new password keeps Argon2 (same parameters, new salt); a round count switches to AES-KDF */
+static void argon2_rekey(void)
+{
+    char src[512], p1[512], p2[512];
+    path_in(src, tdir, "argon2id_small.kdbx");
+    path_in(p1, wdir, "a2_rekey_argon.kdbx");
+    path_in(p2, wdir, "a2_rekey_aes.kdbx");
+    remove(p1);
+    remove(p2);
+    CHECK(copy_file(src, p1), "copy argon2id_small");
+    kdbx_header h0, h1;
+    FILE *f = fopen(p1, "rb");
+    kdbx_read_header(f, &h0);
+    fclose(f);
+    kdbx_db *db = NULL, *x = NULL;
+    CHECK(open_key(p1, "test", NULL, &db) == KDBX_OK, "open argon2 copy");
+    kdbx_key nk;
+    kdbx_key_init(&nk, "n3w-a2", 6, NULL);
+    kdbx_err e = kdbx_save(&db, p1, NULL, 0, NOW, &nk, 0);
+    CHECK(e == KDBX_OK && db, "argon2 rekey: %s", kdbx_strerror(e));
+    f = fopen(p1, "rb");
+    kdbx_read_header(f, &h1);
+    fclose(f);
+    CHECK(h1.kdf == KDF_ARGON2 && h1.a2_type == KDBX_ARGON2_ID && h1.a2_mem == h0.a2_mem && h1.a2_iter == h0.a2_iter &&
+          h1.a2_lanes == h0.a2_lanes && h1.a2_version == h0.a2_version && h1.a2_saltlen == h0.a2_saltlen &&
+          memcmp(h1.a2_salt, h0.a2_salt, h0.a2_saltlen), "argon2 rekey keeps the parameters with a new salt");
+    CHECK(open_key(p1, "test", NULL, &x) == KDBX_ERR_KEY, "old password still opens the rekeyed argon2 file");
+    CHECK(open_key(p1, "n3w-a2", NULL, &x) == KDBX_OK, "new password does not open the rekeyed argon2 file");
+    if (x && db) CHECK(same_index(db, x), "argon2 rekey content");
+    kdbx_close(x);
+    x = NULL;
+    kdbx_close(db);
+    CHECK(copy_file(p1, p2), "copy");
+    db = NULL;
+    CHECK(open_key(p2, "n3w-a2", NULL, &db) == KDBX_OK, "open for the switch to AES-KDF");
+    e = kdbx_save(&db, p2, NULL, 0, NOW, &nk, 4000);
+    CHECK(e == KDBX_OK, "switch to AES-KDF: %s", kdbx_strerror(e));
+    f = fopen(p2, "rb");
+    kdbx_read_header(f, &h1);
+    fclose(f);
+    CHECK(h1.kdf == KDF_AES && h1.rounds == 4000, "now AES-KDF with 4000 rounds");
+    CHECK(open_key(p2, "n3w-a2", NULL, &x) == KDBX_OK, "AES-KDF copy opens");
+    kdbx_close(x);
+    kdbx_close(db);
+    kdbx_key_wipe(&nk);
+}
+
 static void noop(const char *name, const char *pw, const char *keyfile)
 {
     char src[512], dst[512], out[512], kf[512];
@@ -216,6 +265,11 @@ int main(int argc, char **argv)
     noop("keyfile_only.kdbx", NULL, "key_xml2.keyx");
     noop("big1000.kdbx", "test", NULL);
     noop("multiblock.kdbx", "test", NULL);
+    noop("argon2.kdbx", "test", NULL);
+    noop("argon2d_small.kdbx", "test", NULL);
+    noop("argon2id_small.kdbx", "test", NULL);
+    noop("argon2id_kpxc.kdbx", "test", NULL);
+    argon2_rekey();
 
     /* ---- 2. edits, one save per operation (like the device) ---- */
     path_in(src, tdir, "aes_kpxc.kdbx");
@@ -326,17 +380,25 @@ int main(int argc, char **argv)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     CHECK(file_size(tmp) < 0, ".tmp left behind");
 
-    /* e2. the index is freed before the save runs: edit strings that point into it must still work */
+    /* e2. the index is freed before the save runs: edit strings that point into it must still work
+     * (its own copy of the database: edit.kdbx is checked field by field by tools/check_saved.py) */
     {
-        const kdbx_entry *h = by_title(db, "Gmail");
+        char p2[512];
+        path_in(p2, wdir, "e2_pointers.kdbx");
+        remove(p2);
+        CHECK(copy_file(path, p2), "copy for e2");
+        kdbx_db *d2 = NULL;
+        CHECK(open_key(p2, "test", NULL, &d2) == KDBX_OK, "open e2 copy");
+        const kdbx_entry *h = d2 ? by_title(d2, "Gmail") : NULL;
         kdbx_edit ed2 = {.op = KDBX_EDIT_ENTRY, .tags = h ? h->tags : ""};          /* tags, field names: inside the index */
         if (h) memcpy(ed2.uuid, h->uuid, 16);
         kdbx_edit_field fx[2] = {{h ? h->fields[0].key : "Title", "Gmail", false}, {h ? h->fields[1].key : "UserName", "bob@gmail.com", false}};
         ed2.fields = fx;
         ed2.nfields = 2;
-        CHECK((e = save(&db, path, &ed2, 1)) == KDBX_OK, "edit with pointers into the index: %s", kdbx_strerror(e));
-        h = by_title(db, "Gmail");
+        if (d2) CHECK((e = save(&d2, p2, &ed2, 1)) == KDBX_OK, "edit with pointers into the index: %s", kdbx_strerror(e));
+        h = d2 ? by_title(d2, "Gmail") : NULL;
         CHECK(h && !strcmp(h->username, "bob@gmail.com"), "edited user name");
+        kdbx_close(d2);
     }
 
     /* f. change master key + rounds */

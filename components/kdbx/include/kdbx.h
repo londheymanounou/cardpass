@@ -23,6 +23,7 @@ typedef enum {
     KDBX_ERR_NOMEM,
     KDBX_ERR_EDIT,        /* edit refers to a missing item or is invalid (nothing written) */
     KDBX_ERR_REINDEX,     /* kdbx_save: the file WAS saved, but the database could not be reopened (memory) */
+    KDBX_ERR_SWAP,        /* Argon2 memory did not fit in RAM and the swap file on the SD card failed (space?) */
 } kdbx_err;
 
 const char *kdbx_strerror(kdbx_err e);
@@ -82,6 +83,12 @@ void kdbx_set_progress(void (*cb)(void *ctx, int pct), void *ctx);
  * mbedTLS' one DMA transfer per 16 bytes). It must do n rounds on b[32] in place: each round is AES-256-ECB with
  * key `seed` on the two 16-byte halves of b, independently. Return false to decline (the portable loop is used).
  * It is called in chunks and must not keep the hardware locked between calls. NULL = no accelerator. */
+/* Argon2 memory: in RAM when it fits in ram_max bytes, else in an ENCRYPTED swap file at swap_path (one-time key,
+ * deleted after; NULL = no swap: such databases fail with KDBX_ERR_NOMEM). cache_bytes: RAM for the swap cache.
+ * Host default: everything in RAM. */
+void kdbx_set_argon2_memory(size_t ram_max, const char *swap_path, size_t cache_bytes);
+/* Called every few hundred Argon2 blocks: the device yields to its idle-task watchdog there. NULL = none. */
+void kdbx_set_idle_hook(void (*fn)(void));
 typedef bool (*kdbx_kdf_accel_fn)(const uint8_t seed[32], uint8_t b[32], uint64_t n);
 void kdbx_set_kdf_accel(kdbx_kdf_accel_fn fn);
 bool kdbx_kdf_accel_active(void);

@@ -1,6 +1,6 @@
 # CardPass
 
-Offline KeePass (KDBX 4.x, AES-KDF only) password manager for the M5Stack Cardputer ADV
+Offline KeePass (KDBX 4.x; AES-KDF, Argon2d, Argon2id) password manager for the M5Stack Cardputer ADV
 (ESP32-S3, 512 KB SRAM, no PSRAM), ESP-IDF 5.x. Full plan: `PLAN.md`. Status: `PROGRESS.md`.
 Work one stage per session; update `PROGRESS.md` at the end.
 
@@ -14,6 +14,8 @@ Work one stage per session; update `PROGRESS.md` at the end.
 - Release builds: log level NONE, core dumps disabled, panic handler = silent reboot,
   USB CDC serial console disabled.
 - Nothing decrypted is ever written to SD, flash, or NVS. No temp files with plaintext.
+  One deliberate exception: Argon2 memory too big for RAM goes to an SD swap file, ENCRYPTED with AES-256-CTR
+  under a random key that exists only in RAM for that one run and is wiped after (argon2.c); the file is deleted.
 - No Arduino String / std::string for secrets. Fixed buffers only, wiped with
   mbedtls_platform_zeroize() immediately after use.
 - Protected fields are decrypted on demand and wiped right after display/typing.

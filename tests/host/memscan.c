@@ -164,6 +164,29 @@ static void child_derive(const char *pw, const char *path, int fd)
     _exit(0);
 }
 
+/* any KDF (AES or Argon2) through the library: composite key, transformed key, and (Argon2) the tail of the final
+ * memory block: Argon2's working memory is secret-equivalent (it gives the key without the password) */
+extern void (*kdbx_argon2_test_fin)(const uint8_t blk[1024]);
+static uint8_t fin_tail[32];
+static void grab_fin(const uint8_t blk[1024]) { memcpy(fin_tail, blk + 1024 - 32, 32); }
+static void child_kdf(const char *pw, const char *path, int fd)
+{
+    uint8_t d[3][32];
+    kdbx_argon2_test_fin = grab_fin;
+    kdbx_key k;
+    kdbx_key_init(&k, pw, strlen(pw), NULL);
+    FILE *f = fopen(path, "rb");
+    kdbx_header h;
+    kdbx_read_header(f, &h);
+    fclose(f);
+    memcpy(d[0], k.composite, 32);
+    if (kdbx_kdf(&h, k.composite, d[1])) _exit(5);
+    memcpy(d[2], fin_tail, 32);
+    for (int i = 0; i < 3; i++) for (int j = 0; j < 32; j++) d[i][j] ^= MASK;
+    if (write(fd, d, sizeof d) != (ssize_t)sizeof d) _exit(4);
+    _exit(0);
+}
+
 static uint8_t pipe_buf[3][32];                        /* receives masked bytes only */
 static bool run_child(int which, const char *pw, const char *path)
 {
@@ -173,6 +196,7 @@ static bool run_child(int which, const char *pw, const char *path)
     if (pid == 0) {
         close(fds[0]);
         if (which == 0) child_create(path, fds[1]);
+        else if (which == 2) child_kdf(pw, path, fds[1]);
         else child_derive(pw, path, fds[1]);
         _exit(9);
     }
@@ -289,8 +313,13 @@ static void open_entry(void)
     key(K_ENTER);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    const char *tdir = argc > 1 ? argv[1] : "../../testdata";
+    /* Behave like the ESP32 heap: no mmap for big blocks and no returning memory to the OS, otherwise an
+     * unwiped big buffer (Argon2's memory) would vanish on free() here and the test could not see it. */
+    mallopt(M_MMAP_THRESHOLD, 1 << 30);
+    mallopt(M_TRIM_THRESHOLD, 1 << 30);
     char tmpl[] = "/tmp/memscan_XXXXXX";
     if (!mkdtemp(tmpl)) return 2;
     snprintf(wdir, sizeof wdir, "%s", tmpl);
@@ -422,6 +451,55 @@ int main(void)
 
     bad = report("after the cycles: still nothing", -1);
     CHECK(bad == 0, "%d secret(s) in memory after the cycles", bad);
+
+    /* 8. Argon2: the same session on an Argon2id database, memory in RAM and then in the encrypted swap file */
+    {
+        char src[600], dst[600], swp[600];
+        snprintf(src, sizeof src, "%s/argon2id_small.kdbx", tdir);
+        snprintf(dst, sizeof dst, "%s/zz_argon2.kdbx", wdir);           /* sorts after vault.kdbx in the picker */
+        snprintf(swp, sizeof swp, "%s/.argon2.swp", wdir);
+        FILE *a = fopen(src, "rb"), *b = fopen(dst, "wb");
+        char cp[4096];
+        size_t n;
+        while (a && b && (n = fread(cp, 1, sizeof cp, a)) > 0) fwrite(cp, 1, n, b);
+        if (a) fclose(a);
+        if (b) fclose(b);
+        if (!run_child(2, "test", dst)) { printf("FAIL: deriving the Argon2 keys\n"); return 2; }
+        add_bin("Argon2 composite key", pipe_buf[0]);
+        add_bin("Argon2 transformed key", pipe_buf[1]);
+        int a2tk = npats - 1;
+        add_bin("Argon2 final memory block", pipe_buf[2]);       /* 1 lane: the final block IS the last memory block */
+        add_str("Argon2 db entry password", "Gm@il-p4ss!-v2");
+        for (int mode = 0; mode < 2; mode++) {
+            if (mode == 0) kdbx_set_argon2_memory((size_t)-1, NULL, 0);
+            else kdbx_set_argon2_memory(0, swp, 32 * 1024);
+            app_lock(&A);
+            for (int i = 0; i < 8 && strcmp(A.dbs[A.sel], "zz_argon2.kdbx"); i++) key(K_DOWN);
+            key(K_ENTER);
+            feed("test");
+            key(K_ENTER);
+            CHECK(A.db, "Argon2 unlock (%s): %s", mode ? "swap" : "RAM", A.msg);
+            found f;
+            scan(&pats[a2tk], &f);
+            printf("-- Argon2 (%s) unlocked: positive control, transformed key found %d time(s)\n", mode ? "swap" : "RAM", f.hits);
+            CHECK(f.hits >= 1, "scanner did not see the Argon2 key while unlocked");
+            for (int i = 0; i < 4 && (A.scr == SCR_ENTRY || A.scr == SCR_SEARCH); i++) key(A.scr == SCR_SEARCH ? K_ESC : '`');
+            feed("Gmail");
+            key(K_ENTER);
+            select_kind(R_PASS);
+            key('r');
+            tick();
+            key('r');
+            app_lock(&A);
+            present(NULL);
+        }
+        kdbx_set_argon2_memory((size_t)-1, NULL, 0);
+        FILE *sw = fopen(swp, "rb");
+        CHECK(!sw, "swap file left behind");
+        if (sw) fclose(sw);
+        bad = report("after Argon2 (RAM and swap) and lock: still nothing", -1);
+        CHECK(bad == 0, "%d secret(s) in memory after the Argon2 sessions", bad);
+    }
 
     printf("memscan: %d failures\n", failures);
     return failures != 0;
