@@ -99,6 +99,8 @@ static bool num(const char *v, int lo, int hi, int *out)
     return true;
 }
 
+static const char *const THEME_KEYS[4] = {"dusk", "deep-night", "daylight", "sunrise"};
+
 void cp_settings_parse(cp_settings *s, const char *text)
 {
     cp_settings_default(s);
@@ -113,7 +115,10 @@ void cp_settings_parse(cp_settings *s, const char *text)
             if (eq) {
                 *eq = 0;
                 const char *k = line, *v = eq + 1;
-                if (!strcmp(k, "theme")) s->light = !strcmp(v, "light");
+                if (!strcmp(k, "theme")) {
+                    for (int i = 0; i < 4; i++) if (!strcmp(v, THEME_KEYS[i])) s->theme = i;
+                    if (!strcmp(v, "light")) s->theme = 2;     /* before the Bio-Resonant modes */
+                }
                 else if (!strcmp(k, "font")) s->large_font = !strcmp(v, "large");
                 else if (!strcmp(k, "reveal")) s->reveal_toggle = !strcmp(v, "toggle");
                 else if (!strcmp(k, "anim")) s->animations = strcmp(v, "off") != 0;
@@ -151,7 +156,7 @@ size_t cp_settings_format(const cp_settings *s, char *out, size_t n)
     int w = snprintf(out, n,
                      "theme=%s\nfont=%s\nreveal=%s\nanim=%s\nsplash=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
                      "weak_bits=%d\nexpiry_days=%d\ndim=%d\nscreen_off=%d\nlayout=%s\nautotype=%s\nlast_db=%s\n",
-                     s->light ? "light" : "dark", s->large_font ? "large" : "small", s->reveal_toggle ? "toggle" : "hold",
+                     THEME_KEYS[s->theme & 3], s->large_font ? "large" : "small", s->reveal_toggle ? "toggle" : "hold",
                      s->animations ? "on" : "off", s->splash ? "on" : "off", s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
                      s->dim_s, s->off_s, s->layout, s->autotype, s->last_db);
     if (w < 0 || (size_t)w >= n) return 0;

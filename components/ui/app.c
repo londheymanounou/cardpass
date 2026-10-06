@@ -11,7 +11,7 @@
 
 /* ======================= shared helpers ======================= */
 
-int ap_row_h(const app *a) { return F->height + 3; }
+int ap_row_h(const app *a) { return F->height + 1; }
 int ap_visible(const app *a) { return CONTENT_H / ap_row_h(a); }
 void ap_wipe(void *p, size_t n) { mbedtls_platform_zeroize(p, n); }
 
@@ -349,8 +349,8 @@ void ap_draw_progress(app *a, ui_strip *s, const char *title)
     ui_text(s, F, PAD * 2, CONTENT_Y + 12, pct >= 100 ? "Almost done" "\xE2\x80\xA6" : title, T->fg, UI_W - PAD * 4 - nw - 6);
     ui_text(s, F, UI_W - PAD * 2 - nw, CONTENT_Y + 12, num, T->accent, nw + 2);
     int bw = UI_W - PAD * 4, by = CONTENT_Y + 40;
-    ui_fill(s, PAD * 2, by, bw, 8, T->field_bg);
-    ui_fill(s, PAD * 2, by, bw * pct / 100, 8, T->accent);
+    ui_round(s, PAD * 2, by, bw, 8, 8, T->field_bg);                 /* capsules */
+    if (pct) ui_round(s, PAD * 2, by, bw * pct / 100 < 8 ? 8 : bw * pct / 100, 8, 8, T->accent);
     uint32_t el = a->progress_t0 ? a->progress_ms - a->progress_t0 : 0;
     mmss(t1, sizeof t1, el);
     if (pct >= 4 && pct < 100) {
@@ -581,7 +581,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_HOME:
     case SCR_GROUP:
     case SCR_SEARCH:
-        if (a->msg[0]) a->msg[0] = 0, ap_mark(a, UI_H - FOOT_H - 14, UI_H - FOOT_H);
+        if (a->msg[0]) a->msg[0] = 0, ap_mark(a, UI_H - FOOT_H - TOAST_H, UI_H - FOOT_H);
         if (k == K_UP) ap_move_sel(a, a->nhits, -1);
         else if (k == K_DOWN) ap_move_sel(a, a->nhits, 1);
         else if (k == K_ENTER && a->nhits) open_item(a, &ap_items(a)[a->sel]);
@@ -599,7 +599,7 @@ void app_key(app *a, uint32_t key, bool down)
         break;
     case SCR_ENTRY:
         a->msg[0] = 0;
-        ap_mark(a, UI_H - FOOT_H - 14, UI_H);
+        ap_mark(a, UI_H - FOOT_H - TOAST_H, UI_H);
         if (k == K_UP) { a->revealed = false; ap_move_sel(a, a->nrows, -1); ap_mark_all(a); }
         else if (k == K_DOWN) { a->revealed = false; ap_move_sel(a, a->nrows, 1); ap_mark_all(a); }
         else if (k == K_ESC || k == '`') go_back(a);
@@ -680,8 +680,8 @@ void app_init(app *a, const app_platform *p, const cp_settings *cfg)
     a->cfg = *cfg;
     a->sel_prev = -1;
     a->last_scr = -1;
-    a->theme = cfg->light ? &ui_light : &ui_dark;
-    a->font = cfg->large_font ? &ui_font_large : &ui_font_small;
+    a->theme = &ui_themes[cfg->theme & 3];
+    a->font = cfg->large_font ? &ui_font_large : &ui_font_body;
     app_lock(a);
     a->msg[0] = 0;
     if (cfg->splash) { a->scr = SCR_SPLASH; ap_mark_all(a); }
@@ -718,14 +718,15 @@ void ap_draw_bar(app *a, ui_strip *s, const char *title)
     }
     strcat(right, a->db ? ICON_UNLOCK : ICON_LOCK);
     int rw = ui_text_width(&ui_font_small, right);
-    ui_text(s, &ui_font_small, UI_W - PAD - rw, 1, right, bat >= 0 && bat <= 10 ? T->danger : T->bar_fg, rw);
-    ui_text(s, &ui_font_small, PAD, 1, title, T->bar_fg, UI_W - 3 * PAD - rw);
+    ui_text(s, &ui_font_small, UI_W - PAD - rw, 0, right, bat >= 0 && bat <= 10 ? T->danger : T->dim, rw);
+    ui_text(s, &ui_font_title, PAD, 0, title, T->bar_fg, UI_W - 3 * PAD - rw);
+    ui_fill(s, PAD, BAR_H - 2, UI_W - 2 * PAD, UI_STROKE, T->rule);
 }
 
 void ap_draw_footer(app *a, ui_strip *s, const char *hint)
 {
     ui_fill(s, 0, UI_H - FOOT_H, UI_W, FOOT_H, T->bg);
-    ui_text(s, &ui_font_small, PAD, UI_H - FOOT_H, hint, T->dim, UI_W - 2 * PAD);
+    ui_text(s, &ui_font_small, PAD, UI_H - FOOT_H - 1, hint, T->dim, UI_W - 2 * PAD);
 }
 
 /* One list row: icon, text, dim right-aligned note. */
@@ -736,11 +737,11 @@ void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, 
     if (y + h <= s->y0 || y >= s->y0 + s->h) return;
     bool sel = i == a->sel;
     ap_row_bg(a, s, y, h, i);
-    int ty = y + (h - F->height) / 2, x = PAD + 2;
+    int ty = y + (h - F->height) / 2, x = ROW_X0;
     if (icon) x += ui_text(s, F, x, ty, icon, icon_c, 16) + 4;
     int rw = right && *right ? ui_text_width(&ui_font_small, right) : 0;
-    ui_text(s, F, x, ty, text, sel ? T->sel_fg : T->fg, UI_W - x - PAD - (rw ? rw + 6 : 0));
-    if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, y + (h - ui_font_small.height) / 2, right, right_c, rw);
+    ui_text(s, F, x, ty, text, sel ? T->sel_fg : T->fg, ROW_X1 - x - (rw ? rw + 6 : 0));
+    if (rw) ui_text(s, &ui_font_small, ROW_X1 - rw, y + (h - ui_font_small.height) / 2, right, right_c, rw);
 }
 
 void ap_draw_scrollbar_in(app *a, ui_strip *s, int top, int n)
@@ -748,7 +749,8 @@ void ap_draw_scrollbar_in(app *a, ui_strip *s, int top, int n)
     int vis = ap_visible(a);
     if (n <= vis) return;
     int h = CONTENT_H * vis / n, y = CONTENT_Y + (CONTENT_H - h) * top / (n - vis);
-    ui_fill(s, UI_W - 2, y, 2, h < 4 ? 4 : h, T->dim);
+    ui_round(s, UI_W - 3, CONTENT_Y + 1, 2, CONTENT_H - 2, 1, T->field_bg);
+    ui_round(s, UI_W - 3, y, 2, h < 6 ? 6 : h, 1, T->accent);
 }
 
 void ap_draw_scrollbar(app *a, ui_strip *s, int n) { ap_draw_scrollbar_in(a, s, a->top, n); }
@@ -783,19 +785,19 @@ void ap_draw_list(app *a, ui_strip *s)
 void ap_draw_toast(app *a, ui_strip *s)
 {
     if (!a->msg[0]) return;
-    int w = ui_text_width(&ui_font_small, a->msg) + 8;
+    int w = ui_text_width(&ui_font_small, a->msg) + 14;
     if (w > UI_W - 2 * PAD) w = UI_W - 2 * PAD;
-    int y = UI_H - FOOT_H - 14 + ap_toast_offset(a);          /* slides up from behind the footer */
-    ui_fill(s, UI_W - w - PAD, y, w, 13, T->bar_bg);
-    ui_text(s, &ui_font_small, UI_W - w - PAD + 4, y, a->msg, T->warn, w - 8);
+    int y = UI_H - FOOT_H - TOAST_H + ap_toast_offset(a);     /* slides up from behind the footer */
+    ui_round_ring(s, UI_W - w - PAD, y, w, TOAST_H - 1, UI_RADIUS_SM, UI_STROKE, T->faint, T->overlay);
+    ui_text(s, &ui_font_small, UI_W - w - PAD + 7, y + 1, a->msg, T->fg, w - 14);
 }
 
 /* Text box; cursor = byte offset or -1. Long text scrolls so the cursor stays visible. */
 void ap_draw_field(app *a, ui_strip *s, int x, int y, int w, int fh, const char *text, bool masked, int cursor)
 {
 
-    ui_fill(s, x, y, w, fh, T->field_bg);
-    ui_fill(s, x, y + fh - 2, w, 2, cursor >= 0 ? T->accent : T->dim);
+    if (cursor >= 0) ui_round_ring(s, x, y, w, fh, UI_RADIUS_XS, UI_STROKE, T->focus, T->field_bg);
+    else ui_round(s, x, y, w, fh, UI_RADIUS_XS, T->field_bg);
     bool eye = masked && cursor >= 0;                    /* an active password field has the eye (fn+E) */
     if (eye) ui_text(s, F, x + w - 14, y + 3, a->pw_show ? ICON_EYE_OFF : ICON_EYE, a->pw_show ? T->accent : T->dim, 14);
     if (masked && a->pw_show) masked = false;
@@ -847,7 +849,7 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
     if (y + h <= s->y0 || y >= s->y0 + s->h) return;
     bool sel = i == a->sel, reveal = sel && a->revealed;
     ap_row_bg(a, s, y, h, i);
-    int ty = y + (h - F->height) / 2, sy = y + (h - ui_font_small.height) / 2, vx = PAD + LABEL_W, vw = UI_W - vx - PAD;
+    int ty = y + (h - F->height) / 2, sy = y + (h - ui_font_small.height) / 2, vx = PAD + LABEL_W, vw = ROW_X1 - vx;
     const char *label = "", *val = "";
     char right[40] = "";
     uint16_t vc = sel ? T->sel_fg : T->fg, rc = T->dim;
@@ -910,9 +912,9 @@ static void draw_entry_row(app *a, ui_strip *s, int i, char *buf)
     }
     }
     if (masked && reveal) right[0] = 0;                 /* the whole row width is for the secret */
-    ui_text(s, &ui_font_small, PAD + 2, sy, label, T->dim, LABEL_W - 4);
+    ui_text(s, &ui_font_small, ROW_X0, sy, label, T->dim, LABEL_W - 8);
     int rw = right[0] ? ui_text_width(&ui_font_small, right) : 0;
-    if (rw) ui_text(s, &ui_font_small, UI_W - PAD - rw, sy - (r->kind == R_TOTP ? 1 : 0), right, rc, rw);
+    if (rw) ui_text(s, &ui_font_small, ROW_X1 - rw, sy - (r->kind == R_TOTP ? 1 : 0), right, rc, rw);
     int maxw = vw - (rw ? rw + 6 : 0);
     if (masked && !reveal) {
         ui_text(s, F, vx, ty, U_BULLETS, vc, maxw);
@@ -999,17 +1001,18 @@ static void draw_unlock(app *a, ui_strip *s)
 {
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     if (a->progress >= 0) { ap_draw_progress(a, s, "Unlocking" "\xE2\x80\xA6"); return; }
-    ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 6, "Master password", T->dim, UI_W);
-    int fy = CONTENT_Y + 20;
+    ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 1, "Master password", T->dim, UI_W);
+    int fy = CONTENT_Y + 19;
     ap_draw_field(a, s, PAD * 2, fy, UI_W - PAD * 4, F->height + 6, a->pw, true, a->pwlen);
     char kf[192];
     snprintf(kf, sizeof kf, "%s Key file: %s", ICON_FILE, a->keyrel[0] ? a->keyrel : "none");
-    ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 12, kf, a->keyrel[0] ? T->accent : T->dim, UI_W - PAD * 4);
-    if (a->msg[0]) ui_text(s, F, PAD * 2, fy + F->height + 30, a->msg, T->danger, UI_W - PAD * 4);
+    ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 9, kf, a->keyrel[0] ? T->accent : T->dim, UI_W - PAD * 4);
+    if (a->msg[0]) ui_text(s, F, PAD * 2, fy + F->height + 28, a->msg, T->danger, UI_W - PAD * 4);
 }
 
 void app_draw(app *a, ui_strip *s)
 {
+    ui_set_on_fill(T->sel_bg, T->sel_fg);
     char title[96];
     const char *hint = "";
     if (a->scr == SCR_QR) { draw_qr(a, s); return; }
@@ -1047,7 +1050,7 @@ void app_draw(app *a, ui_strip *s)
         for (int i = a->top; i < a->ndbs && i < a->top + ap_visible(a); i++)
             ap_draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
         if (!a->ndbs) ui_text(s, F, PAD * 2, CONTENT_Y + 8, "No .kdbx files on the SD card", T->dim, UI_W);
-        if (a->msg[0]) ui_text(s, &ui_font_small, PAD * 2, UI_H - FOOT_H - 13, a->msg, T->warn, UI_W);
+        if (a->msg[0]) ui_text(s, &ui_font_small, PAD * 2, UI_H - FOOT_H - 17, a->msg, T->warn, UI_W);
         hint = U_UPDOWN " choose  " U_ENTER " open  tab menu";
         break;
     case SCR_UNLOCK:

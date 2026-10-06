@@ -16,6 +16,7 @@ static uint16_t strip[UI_W * HW_STRIP_H];
 void hw_display_init(void) {}
 uint16_t *hw_display_strip(void) { return strip; }
 void hw_display_push(int y0, int h, uint16_t *px) { (void)y0; (void)h; (void)px; }
+void hw_display_forget(void) {}
 void hw_display_brightness(int pct) { (void)pct; }
 void hw_display_sleep(bool on) { (void)on; }
 void hw_display_fade(int pct, int ms) { (void)pct; (void)ms; }

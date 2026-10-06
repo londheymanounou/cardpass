@@ -118,10 +118,13 @@ static void save_settings(void *ctx, const char *text)
 /* Draw and push whatever changed, band by band (no full framebuffer exists). */
 static void present(void *ctx)
 {
+    static bool was_open;
+    if (was_open && !A.db) hw_display_forget();          /* locked: no fingerprint of unlocked screens survives */
+    was_open = A.db != NULL;
     int y0, y1;
     while (app_dirty(&A, &y0, &y1)) {
-        for (int y = y0; y < y1; y += HW_STRIP_H) {
-            ui_strip s = {hw_display_strip(), y, y1 - y < HW_STRIP_H ? y1 - y : HW_STRIP_H};
+        for (int y = y0 / HW_STRIP_H * HW_STRIP_H; y < y1; y += HW_STRIP_H) {   /* whole grid strips: comparable */
+            ui_strip s = {hw_display_strip(), y, UI_H - y < HW_STRIP_H ? UI_H - y : HW_STRIP_H};
             app_draw(&A, &s);
             hw_display_push(y, s.h, s.px);
         }

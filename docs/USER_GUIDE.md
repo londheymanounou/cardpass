@@ -81,6 +81,10 @@ USB drive, set time, groups, change password, Bluetooth.
 - **Change password**: asks for the current password again, then sets a new password and optionally a
   new key file, and can change how long unlocking takes. The old `.bak` backup is deleted because it
   would still open with the old password.
+- **Look**: the Bio-Resonant UI (IBM Plex Sans, superellipse shapes). Four themes in Settings -> Theme:
+  **Dusk** (dark, default), **Deep night** (dark, dimmer: lower text contrast in exchange for less light at night;
+  the trade is shown when you pick it), **Daylight** (light), **Sunrise** (light, slightly warmer).
+  Text size **Large** uses Bio-Resonant's own size (3 rows); **Normal** fits 5.
 - **Settings**: theme, text size, reveal mode, **animations (optional)**, auto-lock, dim and screen-off
   times, keyboard layout, typing speed, time zone, "weak below" threshold, expiry warning, default
   auto-type sequence, and the **splash screen** (the CardPass logo at start-up, about 3 s, any key skips it).

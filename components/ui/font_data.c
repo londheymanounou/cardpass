@@ -494,7 +494,7 @@ static const uint8_t small_bits[] = {
     252, 252, 254, 254, 254, 252, 252, 226, 226, 226, 252, 252, 130, 130, 130, 252, 124, 238, 166, 202, 230, 202, 166, 238,
     124, 16, 56, 56, 108, 84, 246, 108, 124, 40, 56, 16
 };
-const ui_font ui_font_small = {small_glyphs, 363, small_bits, 10, 13};
+const ui_font ui_font_px = {small_glyphs, 363, small_bits, 10, 13, 1, NULL, 0};
 
 static const ui_glyph large_glyphs[] = {
     {0x20, 8, 16, 0, -4, 8, 0},
@@ -1054,4 +1054,4 @@ static const uint8_t large_bits[] = {
     0, 0, 0, 0, 0, 8, 4, 254, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0, 24, 24, 24, 24, 24, 24,
     24, 90, 60, 24, 0, 0, 0, 0
 };
-const ui_font ui_font_large = {large_glyphs, 332, large_bits, 12, 16};
+const ui_font ui_font_px_large = {large_glyphs, 332, large_bits, 12, 16, 1, NULL, 0};

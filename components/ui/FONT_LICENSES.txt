@@ -1,3 +1,7 @@
+IBM Plex Sans (Regular, Medium): SIL Open Font License 1.1, see IBM-Plex-OFL.txt. From the Bio-Resonant UI
+project (src/styles/fonts), rasterised by tools/gen_br_font.py into font_br.c. Cozette (below) stays as the
+pixel fallback for icons and symbols Plex does not have.
+
 Cozette (small font) - MIT License
 MIT License
 

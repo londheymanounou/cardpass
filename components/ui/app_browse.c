@@ -141,9 +141,9 @@ void ap_browse_draw(app *a, ui_strip *s, const char **hint)
         }
         int sw = size[0] ? ui_text_width(&ui_font_small, size) : 0;
         int sy = y + (h - ui_font_small.height) / 2;
-        ui_text(s, &ui_font_small, PAD + 2, sy, icon, dir ? T->accent : T->dim, 14);
-        ui_text(s, F, PAD + 18, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, UI_W - PAD * 2 - 18 - sw - 8);
-        if (sw) ui_text(s, &ui_font_small, UI_W - PAD - 6 - sw, sy, size, T->dim, sw);
+        ui_text(s, &ui_font_small, ROW_X0, sy, icon, dir ? T->accent : T->dim, 14);
+        ui_text(s, F, ROW_X0 + 16, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, ROW_X1 - ROW_X0 - 16 - sw - 6);
+        if (sw) ui_text(s, &ui_font_small, ROW_X1 - sw, sy, size, T->dim, sw);
     }
     if (!n) ui_text(s, F, PAD * 2, CONTENT_Y + 12, "(empty folder)", T->dim, UI_W - PAD * 4);
     ap_draw_scrollbar(a, s, n);

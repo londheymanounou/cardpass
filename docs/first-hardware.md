@@ -99,6 +99,13 @@ million rounds); about 60 us per round means the accelerator is off, and the pro
 it in KeePassXC: it must open (this proves the accelerated KDF output is right on the real chip). Also check
 that nothing resets during a long unlock (the idle-task watchdog is fed by a one-tick yield every second).
 
+## 3k. Bio-Resonant UI on the panel
+Check the anti-aliased Plex text is crisp at 1.14" (12 px labels are the smallest), the four themes (Settings ->
+Theme), and that partial redraws never leave stale strips (move the selection fast, open/close the menu, let a toast
+come and go). The display pipeline (2 DMA buffers, skipped unchanged strips, RAMWRC between strips) is new: if a
+strip ever shows garbage or lands on the wrong rows, set NBUF to 1 in hw_display.c first. HW_LCD_PCLK_HZ can be tried
+at 80 MHz (IO_MUX pins) once everything else works.
+
 ## 3j. Argon2 on the card
 Unlock `testdata/argon2id_small.kdbx` (512 KiB: goes through the swap file) and `argon2d_small.kdbx`, then a real
 KeePassXC database with 16-32 MiB / 2-3 iterations. Time them (seconds per MiB per pass is the number to know), check

@@ -422,12 +422,15 @@ int main(int argc, char **argv)
     keys(K_DOWN, 4);
     key(K_ENTER);
     snap("23_settings");
-    key(K_RIGHT); /* light */
+    key(K_RIGHT); /* Deep night: its contrast trade is disclosed */
+    CHECK(strstr(A.msg, "Deep night"), "deep-night disclosure: %s", A.msg);
+    snap("23b_settings_deep_night");
+    key(K_RIGHT); /* Daylight */
     keys(K_DOWN, 6);
     key(K_RIGHT); /* layout -> UK */
     snap("24_settings_light");
     key('`');
-    CHECK(strstr(saved_settings, "theme=light") && strstr(saved_settings, "layout=UK QWERTY"), "settings saved: %s", saved_settings);
+    CHECK(strstr(saved_settings, "theme=daylight") && strstr(saved_settings, "layout=UK QWERTY"), "settings saved: %s", saved_settings);
     snap("25_home_light");
     key(K_TAB);
     keys(K_DOWN, 4);
@@ -538,7 +541,7 @@ int main(int argc, char **argv)
         /* toast slides up from behind the footer */
         snprintf(A.msg, sizeof A.msg, "Hello toast");
         app_tick(&A, A.now_ms + 500);
-        CHECK(ap_toast_offset(&A) == 14, "toast starts below: %d", ap_toast_offset(&A));
+        CHECK(ap_toast_offset(&A) == TOAST_H, "toast starts below: %d", ap_toast_offset(&A));
         app_tick(&A, A.now_ms + 200);
         CHECK(ap_toast_offset(&A) == 0, "toast settled");
         A.msg[0] = 0;
@@ -1145,7 +1148,7 @@ int main(int argc, char **argv)
         key('x');
         CHECK(A.scr == SCR_PICKER, "a key skips the splash (and is not typed anywhere)");
         sc.splash = false;
-        sc.light = true;
+        sc.theme = UI_THEME_DAYLIGHT;
         app_init(&A, &PLAT, &sc);
         CHECK(A.scr == SCR_PICKER, "no splash when off");
         sc.splash = true;

@@ -521,15 +521,15 @@ void ap_edit_draw(app *a, ui_strip *s, const char **hint)
         int sy = y + (h - ui_font_small.height) / 2, vx = PAD + LABEL_W;
         if (r == ed->editing) {
             if (ed->editing_key) {
-                ui_text(s, &ui_font_small, PAD + 2, sy, "Name", T->accent, LABEL_W - 4);
+                ui_text(s, &ui_font_small, ROW_X0, sy, "Name", T->accent, LABEL_W - 8);
                 ap_draw_field(a, s, vx - 4, y, UI_W - vx, h, ed->key[fi], false, ed->cursor);
             } else {
-                ui_text(s, &ui_font_small, PAD + 2, sy, label, T->accent, LABEL_W - 4);
+                ui_text(s, &ui_font_small, ROW_X0, sy, label, T->accent, LABEL_W - 8);
                 ap_draw_field(a, s, vx - 4, y, UI_W - vx, h, fi == -1 ? ed->tags : ed->val[fi], false, ed->cursor);
             }
             continue;
         }
-        ui_text(s, &ui_font_small, PAD + 2, sy, label[0] ? label : "(name)", T->dim, LABEL_W - 4);
+        ui_text(s, &ui_font_small, ROW_X0, sy, label[0] ? label : "(name)", T->dim, LABEL_W - 8);
         const char *v = fi == -1 ? ed->tags : ed->val[fi];
         char line[128];
         size_t nl = strcspn(v, "\n");
@@ -663,24 +663,24 @@ void ap_gen_draw(app *a, ui_strip *s, const char **hint)
     if (!g) return;
     double bits = g->words ? gen_passphrase_bits(&g->pp) : gen_password_bits(&g->pw);
     /* the value, wrapped over two lines if needed */
-    int vy = CONTENT_Y + 2;
+    int vy = CONTENT_Y + 1;               /* value (2 lines), strength, then a 4-row option grid: 14 px pitch */
     const char *v = g->value;
     for (int line = 0; line < 2 && *v; line++) {
         size_t n = ui_wrap(&ui_font_small, v, UI_W - 2 * PAD);
         char buf[128];
         snprintf(buf, sizeof buf, "%.*s", (int)n, v);
-        ui_text(s, &ui_font_small, PAD, vy + line * 12, buf, T->accent, UI_W - 2 * PAD);
+        ui_text(s, &ui_font_small, PAD, vy + line * 14, buf, T->accent, UI_W - 2 * PAD);
         ap_wipe(buf, sizeof buf);
         v += n;
     }
     char info[64];
     snprintf(info, sizeof info, "%s \xC2\xB7 %.1f bits%s", g->words ? "Passphrase" : "Password", bits,
              g->words && gen_passphrase_ambiguous(&g->pp) ? "  \xE2\x9A\xA0 no word boundary" : "");
-    ui_text(s, &ui_font_small, PAD, vy + 25, info, bits >= a->cfg.weak_bits ? T->ok : T->warn, UI_W - 2 * PAD);
+    ui_text(s, &ui_font_small, PAD, vy + 28, info, bits >= a->cfg.weak_bits ? T->ok : T->warn, UI_W - 2 * PAD);
 
     /* options: a small list under the value */
     static const char *const cap_names[] = {"none", "Each word", "One word"};
-    int oy = CONTENT_Y + 42, oh = 12;
+    int oy = CONTENT_Y + 44, oh = 14;
     for (int r = 0; r < gen_rows(g); r++) {
         char l[40], val[24];
         if (g->words) {
@@ -701,9 +701,9 @@ void ap_gen_draw(app *a, ui_strip *s, const char **hint)
         int y = oy + (r % 4) * oh, x = r < 4 ? PAD : UI_W / 2 + PAD;
         if (y + oh <= s->y0 || y >= s->y0 + s->h) continue;
         bool sel = r == a->sel;
-        if (sel) ui_fill(s, x - 2, y, UI_W / 2 - 4, oh, T->sel_bg);
-        ui_text(s, &ui_font_small, x, y, l, sel ? T->sel_fg : T->dim, 70);
-        ui_text(s, &ui_font_small, x + 72, y, val, sel ? T->accent : T->fg, UI_W / 2 - 80);
+        if (sel) ui_round_ring(s, x - 3, y, UI_W / 2 - 4, oh, oh, UI_STROKE, T->ring, T->sel_bg);
+        ui_text(s, &ui_font_small, x + 3, y - 2, l, sel ? T->sel_fg : T->dim, 66);
+        ui_text(s, &ui_font_small, x + 76, y - 2, val, sel ? T->sel_fg : T->fg, UI_W / 2 - 84);
     }
     *hint = g->for_edit ? U_ENTER " use  space new  " U_LR " change  tab mode" : U_ENTER " type  space new  " U_LR " change  tab mode";
     if (a->msg[0]) *hint = a->msg;

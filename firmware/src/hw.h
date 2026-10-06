@@ -12,7 +12,10 @@
 void hw_display_init(void);
 uint16_t *hw_display_strip(void);                        /* DMA-capable UI_W x STRIP_H buffer */
 #define HW_STRIP_H 16
-void hw_display_push(int y0, int h, uint16_t *px);        /* px is RGB565, byte-swapped in place */
+/* Queues the strip (asynchronous DMA) and skips it when the panel already shows the same pixels. y0 must be on the
+ * HW_STRIP_H grid for the skip to apply. px is RGB565, byte-swapped in place. */
+void hw_display_push(int y0, int h, uint16_t *px);
+void hw_display_forget(void);                             /* wipe the strip hashes (on lock) */
 void hw_display_brightness(int pct);
 void hw_display_sleep(bool on);
 void hw_display_fade(int pct, int ms);                   /* non-blocking backlight ramp */

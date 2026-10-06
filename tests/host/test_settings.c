@@ -14,7 +14,8 @@ int main(void)
     cp_settings_parse(&s, ""); /* wiped NVS */
     CHECK(!memcmp(&s, &d, sizeof s), "empty -> defaults");
 
-    s.light = s.large_font = s.reveal_toggle = true;
+    s.theme = 3;
+    s.large_font = s.reveal_toggle = true;
     s.autolock_s = 60;
     s.tz_minutes = -300;
     strcpy(s.layout, "FR AZERTY");

@@ -7,12 +7,15 @@
 #include "app.h"
 #include "ui_icons.h"
 
-#define BAR_H 14
-#define FOOT_H 12
+#define BAR_H 19            /* title line (Plex 12 Medium, 17) + the rule */
+#define FOOT_H 16           /* hint line (Plex 12, ascent 13 + 3 of its descent) */
 #define CONTENT_Y BAR_H
 #define CONTENT_H (UI_H - BAR_H - FOOT_H)
+#define TOAST_H 19          /* toast: a Plex 12 line + its ring */
 #define PAD 4
-#define LABEL_W 56
+#define LABEL_W 62
+#define ROW_X0 (PAD + 6)        /* row content inside the selection capsule */
+#define ROW_X1 (UI_W - PAD - 7)
 #define REVEAL_MAX 1024
 
 #define T (a->theme)

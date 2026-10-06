@@ -100,7 +100,8 @@ void ap_menu_draw(app *a, ui_strip *s, const char **hint)
     static const char *const icons[] = {"+", ICON_BOLT, ICON_WARNING, ICON_CLOCK, ICON_COG, ICON_LOCK, "+", ICON_USB, ICON_CLOCK, ICON_FOLDER_OPEN, ICON_KEY, ICON_BLUETOOTH};
     int it[14], n = menu_items(a, it);
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-    for (int i = 0; i < n; i++) ap_draw_row(a, s, i, icons[it[i]], T->accent, names[it[i]], NULL, 0);
+    for (int i = a->top; i < n && i < a->top + ap_visible(a); i++) ap_draw_row(a, s, i, icons[it[i]], T->accent, names[it[i]], NULL, 0);
+    ap_draw_scrollbar(a, s, n);
     *hint = U_ENTER " choose  ` back";
 }
 
@@ -123,8 +124,8 @@ static int step_in(const int *v, int n, int cur, int d)
 
 void ap_apply_settings(app *a)
 {
-    a->theme = a->cfg.light ? &ui_light : &ui_dark;
-    a->font = a->cfg.large_font ? &ui_font_large : &ui_font_small;
+    a->theme = &ui_themes[a->cfg.theme & 3];
+    a->font = a->cfg.large_font ? &ui_font_large : &ui_font_body;
     char buf[2048];
     if (cp_settings_format(&a->cfg, buf, sizeof buf)) a->p->save_settings(a->p->ctx, buf);
     ap_wipe(buf, sizeof buf);                              /* may contain Wi-Fi passwords */
@@ -134,7 +135,11 @@ static void settings_change(app *a, int d)
 {
     cp_settings *c = &a->cfg;
     switch (a->sel) {
-    case S_THEME: c->light = !c->light; break;
+    case S_THEME:
+        c->theme = (c->theme + (d < 0 ? UI_THEMES - 1 : 1)) % UI_THEMES;
+        if (c->theme == UI_THEME_DEEP_NIGHT)   /* Bio-Resonant SPECIFICATION 3.10: the trade must be disclosed */
+            snprintf(a->msg, sizeof a->msg, "Deep night: lower contrast, less light");
+        break;
     case S_FONT: c->large_font = !c->large_font; break;
     case S_ANIM: c->animations = !c->animations; break;
     case S_SPLASH: c->splash = !c->splash; break;
@@ -154,8 +159,8 @@ static void settings_change(app *a, int d)
     case S_WEAK: c->weak_bits += d * 8; if (c->weak_bits > 128) c->weak_bits = 40; if (c->weak_bits < 40) c->weak_bits = 128; break;
     case S_EXPIRY: c->expiry_days = step_in(EXPIRY_DAYS, 5, c->expiry_days, d); break;
     }
-    a->theme = c->light ? &ui_light : &ui_dark;
-    a->font = c->large_font ? &ui_font_large : &ui_font_small;
+    a->theme = &ui_themes[c->theme & 3];
+    a->font = c->large_font ? &ui_font_large : &ui_font_body;
 }
 
 void ap_settings_key(app *a, uint32_t k, bool fn)
@@ -191,8 +196,8 @@ void ap_settings_draw(app *a, ui_strip *s, const char **hint)
     for (int i = a->top; i < S_COUNT && i < a->top + ap_visible(a); i++) {
         char v[100];
         switch (i) {
-        case S_THEME: snprintf(v, sizeof v, "%s", c->light ? "Light" : "Dark"); break;
-        case S_FONT: snprintf(v, sizeof v, "%s", c->large_font ? "Large" : "Small"); break;
+        case S_THEME: snprintf(v, sizeof v, "%s", ui_theme_names[c->theme & 3]); break;
+        case S_FONT: snprintf(v, sizeof v, "%s", c->large_font ? "Large" : "Normal"); break;
         case S_ANIM: snprintf(v, sizeof v, "%s", c->animations ? "On" : "Off"); break;
         case S_SPLASH: snprintf(v, sizeof v, "%s", c->splash ? "On" : "Off"); break;
         case S_REVEAL: snprintf(v, sizeof v, "%s", c->reveal_toggle ? "Press R" : "Hold R"); break;
@@ -210,7 +215,7 @@ void ap_settings_draw(app *a, ui_strip *s, const char **hint)
         if (y + h <= s->y0 || y >= s->y0 + s->h) continue;
         bool sel = i == a->sel;
         ap_row_bg(a, s, y, h, i);
-        ui_text(s, &ui_font_small, PAD + 2, y + (h - ui_font_small.height) / 2, names[i], T->dim, 72);
+        ui_text(s, &ui_font_small, ROW_X0, y + (h - ui_font_small.height) / 2, names[i], T->dim, 68);
         if (sel && a->text_edit) ap_draw_field(a, s, 78, y, UI_W - 80, h, c->autotype, false, (int)strlen(c->autotype));
         else ui_text(s, F, 80, y + (h - F->height) / 2, v, sel ? T->sel_fg : T->fg, UI_W - 80 - PAD);
     }
@@ -563,7 +568,7 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
         bool sel = i == a->sel;
         if (i == C_CREATE) { ap_draw_row(a, s, i, ICON_CHECK, T->ok, "Create database", NULL, 0); continue; }
         ap_row_bg(a, s, y, h, i);
-        ui_text(s, &ui_font_small, PAD + 2, y + (h - ui_font_small.height) / 2, names[i], T->dim, 60);
+        ui_text(s, &ui_font_small, ROW_X0, y + (h - ui_font_small.height) / 2, names[i], T->dim, 56);
         char v[64];
         const char *b = NULL;
         switch (i) {

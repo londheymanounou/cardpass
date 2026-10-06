@@ -111,7 +111,7 @@ def emit(name, ascent, descent, glyphs, cps):
     rows = [", ".join(f"{b}" for b in data[i:i + 24]) for i in range(0, len(data), 24)]
     return (f"static const ui_glyph {name}_glyphs[] = {{\n    " + ",\n    ".join(table) + "\n};\n"
             f"static const uint8_t {name}_bits[] = {{\n    " + ",\n    ".join(rows) + "\n};\n"
-            f"const ui_font ui_font_{name} = {{{name}_glyphs, {len(table)}, {name}_bits, {ascent}, {ascent + descent}}};\n"), len(table), len(data)
+            f"const ui_font ui_font_{'px' if name == 'small' else 'px_large'} = {{{name}_glyphs, {len(table)}, {name}_bits, {ascent}, {ascent + descent}, 1, NULL, 0}};\n"), len(table), len(data)
 
 
 def main():

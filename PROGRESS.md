@@ -209,6 +209,19 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
+- **Bio-Resonant UI** (from D:/bio-resonant-ui): IBM Plex Sans (4-bit anti-aliased; 12 / 12 Medium / 13 / 21 px,
+  888 glyphs each, Cozette kept as the fallback for icons), the four circadian modes as themes (Dusk, Deep night,
+  Daylight, Sunrise) generated from its tokens.css with APCA re-checked after RGB565 (contrast-preserving
+  quantisation: every ink keeps its exact Lc within 0.3), superellipse / capsule shapes (selection capsule with accent
+  ring, sunken fields with focus ring, raised toasts, accent scroll thumb), title + rule header, geometry = its tokens
+  scaled 13/21. Ink on the accent fill is always the on-accent ink (renderer rule). Deep night discloses its trade.
+  Generators: tools/gen_br_theme.py, gen_br_font.py, gen_logo.py.
+  Speed ("Nintendo" style): no framebuffer (strips), glyph index, 16-colour blend ramps, 32-bit fills, cached corner
+  coverage, the logo pre-baked as a 26 KB ROM sprite (splash 269 -> 27 us/frame on the host), tests/host/bench.sh
+  (fast paths on vs off: 1.6-1.9x). Device: double-buffered DMA strips (draw n+1 while n is sent), strips on a fixed
+  grid with a 64-bit hash each, unchanged strips not sent, column window set once, RAMWRC between strips; the hashes
+  are wiped when the database closes (they fingerprint what was on screen). Cost: a second 7.5 KB DMA buffer.
+  Flash 1.12 -> 1.40 MB (fonts). Compile-checked only on the device.
 - **Argon2** (`components/kdbx/argon2.c`): Argon2d / Argon2id (Argon2i too), versions 0x10 / 0x13, BLAKE2b, KDBX 4
   parameters (S, P, M, I, V, K, A). Memory in RAM when it fits, else an ENCRYPTED SD swap file (AES-256-CTR, random
   one-time key; processing-order layout so pass 0 appends and "rewritten this pass" = index < current; cache of

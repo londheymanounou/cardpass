@@ -12,7 +12,7 @@
 #define SLIDE_STAGGER 18
 #define SLIDE_DX 60
 #define TOAST_MS 120
-#define TOAST_DY 14
+#define TOAST_DY TOAST_H
 #define FRAME_MS 33
 #define LOW_BATTERY 15
 
@@ -49,10 +49,10 @@ int ap_row_weight(const app *a, int i)
 void ap_row_bg(app *a, ui_strip *s, int y, int h, int i)
 {
     int w = ap_row_weight(a, i);
-    if (w == 0) { ui_fill(s, 0, y, UI_W, h, T->bg); return; }
-    if (w >= 256) { ui_fill(s, 0, y, UI_W, h, T->sel_bg); ui_fill(s, 0, y, 2, h, T->accent); return; }
-    ui_fill(s, 0, y, UI_W, h, blend(T->bg, T->sel_bg, w));
-    ui_fill(s, 0, y, 2, h, blend(T->bg, T->accent, w));
+    ui_fill(s, 0, y, UI_W, h, T->bg);
+    if (w == 0) return;
+    uint16_t fill = w >= 256 ? T->sel_bg : blend(T->bg, T->sel_bg, w), ring = w >= 256 ? T->ring : blend(T->bg, T->ring, w);
+    ui_round_ring(s, PAD / 2, y, UI_W - PAD - 4, h, h, UI_STROKE, ring, fill);    /* r = h: a capsule */
 }
 
 void ap_sel_changed(app *a, int old)

@@ -162,7 +162,7 @@ void ap_account_draw(app *a, ui_strip *s, const char **hint)
         bool sel = i == a->sel;
         if (i == A_APPLY) { ap_draw_row(a, s, i, ICON_CHECK, T->ok, "Change password", NULL, 0); continue; }
         ap_row_bg(a, s, y, h, i);
-        ui_text(s, &ui_font_small, PAD + 2, y + (h - ui_font_small.height) / 2, names[i], T->dim, 60);
+        ui_text(s, &ui_font_small, ROW_X0, y + (h - ui_font_small.height) / 2, names[i], T->dim, 56);
         char v[64];
         const char *b = i == A_CUR ? c->cur : i == A_NEW ? c->pw : i == A_NEW2 ? c->pw2 : NULL;
         if (i == A_KEYFILE) snprintf(v, sizeof v, "%s", c->kf == KF_NONE ? "None" : c->kf == KF_KEEP ? "Keep current" : "Generate new");

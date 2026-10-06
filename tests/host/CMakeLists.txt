@@ -82,7 +82,7 @@ add_executable(test_fido test_fido.c)
 target_link_libraries(test_fido fido)
 add_test(NAME fido COMMAND test_fido ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata ${CMAKE_CURRENT_BINARY_DIR})
 
-add_library(ui STATIC ../../components/ui/gfx.c ../../components/ui/app.c ../../components/ui/app_edit.c ../../components/ui/app_tools.c ../../components/ui/app_fido.c ../../components/ui/app_bt.c ../../components/ui/app_splash.c ../../components/ui/app_browse.c ../../components/ui/app_time.c ../../components/ui/app_anim.c ../../components/ui/app_account.c ../../components/ui/app_groups.c ../../components/ui/app_view.c ../../components/ui/font_data.c ../../components/ui/settings.c ../../components/qr/qrcodegen.c)
+add_library(ui STATIC ../../components/ui/gfx.c ../../components/ui/app.c ../../components/ui/app_edit.c ../../components/ui/app_tools.c ../../components/ui/app_fido.c ../../components/ui/app_bt.c ../../components/ui/app_splash.c ../../components/ui/app_browse.c ../../components/ui/app_time.c ../../components/ui/app_anim.c ../../components/ui/app_account.c ../../components/ui/app_groups.c ../../components/ui/app_view.c ../../components/ui/font_data.c ../../components/ui/font_br.c ../../components/ui/theme_br.c ../../components/ui/logo_data.c ../../components/ui/settings.c ../../components/qr/qrcodegen.c)
 target_include_directories(ui PUBLIC ../../components/ui/include ../../components/qr)
 target_link_libraries(ui PUBLIC kdbx search strength totp typing gen fido)
 add_executable(render render.c)
