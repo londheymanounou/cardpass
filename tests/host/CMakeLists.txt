@@ -64,7 +64,7 @@ add_executable(test_typing test_typing.c)
 target_link_libraries(test_typing typing)
 add_test(NAME typing COMMAND test_typing)
 
-add_library(strength STATIC ../../components/strength/strength.c)
+add_library(strength STATIC ../../components/strength/strength.c ../../components/strength/wordpairs.c)
 target_include_directories(strength PUBLIC ../../components/strength/include)
 target_link_libraries(strength PUBLIC gen m)
 add_executable(test_strength test_strength.c)
@@ -96,7 +96,7 @@ add_test(NAME settings COMMAND test_settings)
 
 if(WIN32)
   add_executable(sim WIN32 sim.c)
-  target_link_libraries(sim ui gdi32 user32)
+  target_link_libraries(sim ui gdi32 user32 winmm)
 endif()
 
 add_executable(test_argon2 test_argon2.c)

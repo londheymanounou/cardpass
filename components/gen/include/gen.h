@@ -39,4 +39,12 @@ double gen_passphrase_bits(const gen_pp_opts *o);
 bool gen_passphrase_ambiguous(const gen_pp_opts *o);
 
 unsigned gen_word_count(void);
-const char *gen_word(unsigned i, char out[16]);
+const char *gen_word(unsigned i, char out[16]);   /* O(i): decodes from the start; use the iterator to walk the list */
+/* The whole list in order. It is front-coded (each word = a prefix of the previous one + the rest), so walking it
+ * costs O(1) per word, where gen_word(i) for every i would cost O(n^2). */
+typedef struct { unsigned pos; size_t len; char word[16]; } gen_word_iter;
+void gen_words_begin(gen_word_iter *it);
+bool gen_words_next(gen_word_iter *it);           /* false at the end */
+/* Continue from byte offset pos, where the next word shares at most its first letter with the one before
+ * (true wherever the first two letters change): first = that letter. */
+void gen_words_at(gen_word_iter *it, unsigned pos, char first);

@@ -4,3 +4,6 @@
 #pragma once
 
 double strength_bits(const char *utf8);
+
+/* Tests only: false = scan the whole word list instead of the pair index (results must be identical). */
+void strength_use_index(bool on);

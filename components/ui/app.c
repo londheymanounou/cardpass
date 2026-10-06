@@ -85,6 +85,7 @@ static int title_cmp(const void *x, const void *y)
 /* Home: expiry alert, favorites, this session's recent entries, then the root group. */
 void ap_build_group(app *a, const kdbx_group *g, bool home)
 {
+    a->query_prev[0] = 0;                                  /* the list is no longer search hits: never narrow over it */
     list_item *it = ap_items(a);
     int n = 0;
     if (home) {
@@ -110,7 +111,16 @@ void ap_build_group(app *a, const kdbx_group *g, bool home)
 void ap_build_search(app *a)
 {
     search_hit *h = malloc(sizeof *h * (size_t)(a->nentries ? a->nentries : 1));
-    int n = h ? (int)search_run(a->db, a->query, a->recent, (size_t)a->nrecent, h, (size_t)a->nentries) : 0;
+    size_t pl = strlen(a->query_prev);
+    bool narrow = a->scr == SCR_SEARCH && pl && !strncmp(a->query, a->query_prev, pl);   /* typed more: a subset */
+    const kdbx_entry **among = narrow ? malloc(sizeof *among * (size_t)(a->nhits ? a->nhits : 1)) : NULL;
+    if (among)
+        for (int i = 0; i < a->nhits; i++) among[i] = ap_items(a)[i].p;
+    int n = !h ? 0
+          : among ? (int)search_run_among(a->db, a->query, a->recent, (size_t)a->nrecent, among, (size_t)a->nhits, h, (size_t)a->nentries)
+                  : (int)search_run(a->db, a->query, a->recent, (size_t)a->nrecent, h, (size_t)a->nentries);
+    free(among);
+    snprintf(a->query_prev, sizeof a->query_prev, "%s", a->query);
     for (int i = 0; i < n; i++) ap_items(a)[i] = (list_item){h[i].e, LI_ENTRY};
     free(h);
     a->nhits = n;
@@ -155,6 +165,7 @@ void ap_move_sel(app *a, int n, int delta)
 
 static void free_lists(app *a)
 {
+    a->query_prev[0] = 0;
     if (a->hits) ap_wipe(a->hits, sizeof(list_item) * (size_t)a->list_cap), free(a->hits);
     a->hits = NULL;
     free(a->audit_bits);
@@ -163,6 +174,7 @@ static void free_lists(app *a)
 
 bool ap_reindex(app *a)
 {
+    a->query_prev[0] = 0;                                  /* new index: old entry pointers are dead */
     free_lists(a);
     a->nentries = 0;
     int ngroups = 0;
@@ -305,6 +317,7 @@ void app_lock(app *a)
     ap_view_free(a);
     ap_wipe(a->pw, sizeof a->pw);
     ap_wipe(a->query, sizeof a->query);
+    ap_wipe(a->query_prev, sizeof a->query_prev);
     ap_wipe(a->recent, sizeof a->recent);
     ap_wipe(a->rows, sizeof a->rows);
     ap_wipe(a->qr, sizeof a->qr);
@@ -591,7 +604,7 @@ void app_key(app *a, uint32_t key, bool down)
             if (!a->qlen) go_back(a);
             else ap_build_search(a), ap_mark_all(a);
         } else if (ap_printable(k) && !fn && (k != ' ' || a->scr == SCR_SEARCH)) {
-            if (a->scr != SCR_SEARCH) a->scr = SCR_SEARCH, a->qlen = 0, a->query[0] = 0;
+            if (a->scr != SCR_SEARCH) a->scr = SCR_SEARCH, a->qlen = 0, a->query[0] = 0, a->query_prev[0] = 0;
             ap_utf8_append(a->query, &a->qlen, sizeof a->query, k);
             ap_build_search(a);
             ap_mark_all(a);

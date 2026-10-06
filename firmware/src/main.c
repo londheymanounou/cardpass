@@ -129,7 +129,7 @@ static void present(void *ctx)
             hw_display_push(y, s.h, s.px);
         }
     }
-    vTaskDelay(1); /* let the idle task and watchdog run during long operations (KDF, save) */
+    vTaskDelay(1); /* 1 ms: let the idle task and watchdog run during long operations (KDF, save) */
 }
 
 static void on_key(uint32_t key, bool down) { app_key(&A, key, down); }
@@ -161,7 +161,11 @@ static void pump(void *ctx)
         ctaphid_keepalive(&HID, usb_send, NULL);
         keepalive_at = now + 100;
     }
-    vTaskDelay(pdMS_TO_TICKS(A.power == 2 ? 50 : 10));           /* dark and idle: poll the keyboard at 20 Hz */
+    /* Paced loop: one pass per 16 ms frame (62.5 Hz: animations at 60 fps, keys read at that rate), 50 ms while the
+     * screen is dark. vTaskDelayUntil keeps the rhythm whatever the frame cost (it never waits when a frame overran). */
+    static TickType_t last;
+    if (!last) last = xTaskGetTickCount();
+    vTaskDelayUntil(&last, pdMS_TO_TICKS(A.power == 2 ? 50 : 16));
 }
 
 static bool usb_drive(void *ctx, bool enter) { return hw_usb_drive(enter); }

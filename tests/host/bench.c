@@ -11,10 +11,11 @@
 static app A;
 static char wdir[512];
 static uint32_t ms;
+static const char *dbname = "aes_kpxc.kdbx";
 static int list_files(void *c, const char *ext, char names[][64], int max)
 {
     (void)c; (void)ext; (void)max;
-    snprintf(names[0], 64, "aes_kpxc.kdbx");
+    snprintf(names[0], 64, "%s", dbname);
     return 1;
 }
 static void path_fn(void *c, const char *name, char *out, size_t n) { (void)c; snprintf(out, n, "%s/%s", wdir, name); }
@@ -63,6 +64,47 @@ static double frame_us(int frames)
     return sink == 12345 ? us + 1e-9 : us;          /* keep the work observable */
 }
 
+/* One user action: the key handling plus the full redraw it causes, in microseconds. */
+static double action_us(uint32_t k)
+{
+    static uint16_t buf[UI_W * 16];
+    clock_t t0 = clock();
+    const int reps = 1;
+    key(k);
+    for (int y = 0; y < UI_H; y += 16) {
+        ui_strip s = {buf, y, UI_H - y < 16 ? UI_H - y : 16};
+        app_draw(&A, &s);
+    }
+    (void)reps;
+    return (double)(clock() - t0) * 1e6 / CLOCKS_PER_SEC;
+}
+
+static void actions(void)
+{
+    /* averaged over many repetitions of a full open/close cycle */
+    const int R = 200;
+    double t[8] = {0};
+    const char *names[] = {"open entry", "back", "open group", "back", "menu", "settings", "back x2", "type 'g'"};
+    for (int r = 0; r < R; r++) {
+        type("gm");
+        t[0] += action_us(K_ENTER);
+        t[1] += action_us('`');
+        key(K_ESC);
+        key(K_DOWN); key(K_DOWN);
+        t[2] += action_us(K_ENTER);
+        t[3] += action_us('`');
+        t[4] += action_us(K_TAB);
+        for (int i = 0; i < 4; i++) key(K_DOWN);
+        t[5] += action_us(K_ENTER);
+        t[6] += action_us('`');
+        key(K_ESC);
+        t[7] += action_us('g');
+        key(K_ESC);
+        A.sel = A.top = 0;
+    }
+    for (int i = 0; i < 8; i++) printf("  action %-12s %9.1f us\n", names[i], t[i] / R);
+}
+
 int main(int argc, char **argv)
 {
     snprintf(wdir, sizeof wdir, "%s", argc > 1 ? argv[1] : "testdata");
@@ -80,6 +122,7 @@ int main(int argc, char **argv)
         printf("  %-10s %7.1f us/frame\n", "unlock", frame_us(N));
         key(K_ENTER);
         printf("  %-10s %7.1f us/frame\n", "home", frame_us(N));
+        if (!large) actions();
         type("gm");
         key(K_ENTER);
         printf("  %-10s %7.1f us/frame\n", "entry", frame_us(N));
@@ -91,6 +134,33 @@ int main(int argc, char **argv)
         printf("  %-10s %7.1f us/frame\n", "settings", frame_us(N));
         app_lock(&A);
     }
+    /* the 1,000-entry database: anything quadratic shows here */
+    cfg.large_font = false;
+    dbname = "big1000.kdbx";
+    app_init(&A, &PLAT, &cfg);
+    key(K_ENTER);
+    type("test");
+    key(K_ENTER);
+    printf("big1000 (1,000 entries)\n");
+    printf("  %-10s %7.1f us/frame\n", "home", frame_us(N / 10));
+    double t = 0;
+    const char *q = "site 9";
+    for (const char *p = q; *p; p++) t += action_us((uint32_t)*p);
+    printf("  action %-22s %9.1f us per key\n", "search typing", t / 6);
+    t = action_us(K_ENTER);
+    printf("  action %-22s %9.1f us\n", "open entry", t);
+    key('`');
+    key(K_ESC);
+    key(K_ESC);
+    for (int i = 0; i < 12; i++) key(K_DOWN);
+    printf("  action %-22s %9.1f us\n", "open group (50)", action_us(K_ENTER));
+    key('`');
+    key(K_TAB);
+    key(K_DOWN);
+    key(K_DOWN);
+    printf("  action %-22s %9.1f us\n", "password audit (1000)", action_us(K_ENTER));
+    app_lock(&A);
+    dbname = "aes_kpxc.kdbx";
     cfg.large_font = false;
     cfg.splash = true;
     app_init(&A, &PLAT, &cfg);

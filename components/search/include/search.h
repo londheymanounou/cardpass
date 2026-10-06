@@ -15,6 +15,10 @@ typedef struct {
  * max should be >= the number of entries. Returns hits written, best first. */
 size_t search_run(const kdbx_db *db, const char *query, const kdbx_entry *const *recent, size_t nrecent,
                   search_hit *hits, size_t max);
+/* The same, looking only at `among` (n entries). Terms are subsequences, ANDed: a query that extends the previous one
+ * can only lose hits, so typing narrows the previous hits instead of rescanning the database. */
+size_t search_run_among(const kdbx_db *db, const char *query, const kdbx_entry *const *recent, size_t nrecent,
+                        const kdbx_entry *const *among, size_t namong, search_hit *hits, size_t max);
 
 /* Tags are separated by ';' or ','; comparison ignores case and surrounding spaces. */
 bool search_has_tag(const char *tags, const char *tag);

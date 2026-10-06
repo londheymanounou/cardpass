@@ -235,6 +235,7 @@ static int by_value(const void *x, const void *y)
 /* Fill the list rows (and audit_bits) from scored entries. */
 static void set_report(app *a, scored *sc, int n, int scr)
 {
+    a->query_prev[0] = 0;
     qsort(sc, (size_t)n, sizeof *sc, by_value);
     free(a->audit_bits);
     a->audit_bits = malloc(sizeof(float) * (size_t)(n ? n : 1));

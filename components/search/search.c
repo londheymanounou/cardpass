@@ -112,6 +112,12 @@ static int hit_cmp(const void *pa, const void *pb)
 size_t search_run(const kdbx_db *db, const char *query, const kdbx_entry *const *recent, size_t nrecent,
                   search_hit *hits, size_t max)
 {
+    return search_run_among(db, query, recent, nrecent, NULL, 0, hits, max);
+}
+
+size_t search_run_among(const kdbx_db *db, const char *query, const kdbx_entry *const *recent, size_t nrecent,
+                        const kdbx_entry *const *among, size_t namong, search_hit *hits, size_t max)
+{
     unsigned terms[8][32];
     size_t tlen[8], nt = 0;
     for (const char *q = query; *q && nt < 8;) {
@@ -119,7 +125,9 @@ size_t search_run(const kdbx_db *db, const char *query, const kdbx_entry *const 
     }
 
     size_t n = 0;
-    for (const kdbx_entry *e = kdbx_entries(db); e && n < max; e = e->next) {
+    size_t k = 0;
+    for (const kdbx_entry *e = among ? (namong ? among[0] : NULL) : kdbx_entries(db); e && n < max;
+         e = among ? (++k < namong ? among[k] : NULL) : e->next) {
         int total = 0;
         for (size_t t = 0; t < nt && total >= 0; t++) {
             int best = -1, s;

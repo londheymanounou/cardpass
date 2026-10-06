@@ -209,6 +209,15 @@ checked by independent readers with `python tools/check_saved.py`.
   every effect is a function of state + time inside the strip drawing. Off automatically when dimmed,
   below 15 % battery and during passkey prompts; a key press ends the slide. `tools/make_anim_gif.py`
   renders them to dist/animations.gif from the real drawing code.
+- **"Opening lags" fixed** (tests/host/bench.sh times actions, not just frames): opening an entry cost 253 ms on the
+  host because the strength estimate called gen_word(i) for every i (each call decodes the front-coded list from the
+  start: O(n^2), 30 M steps). Now: an iterator walks the list once, an exact 26x26 letter-pair table skips words that
+  cannot match, and a ROM index (tools/gen_wordpairs.py -> wordpairs.c) jumps straight to the words of the pairs in
+  the password. Open entry 253 ms -> 0.05 ms; password audit of 1,000 entries 116 ms -> 7.6 ms; strength test suite
+  6 s -> 0.01 s; results identical (3,000-password equivalence test vs the full scan). Search narrows the previous
+  hits while typing (reset on any other list build or reindex: no dead pointers). Corners blend through the ramps.
+  60 fps: animation frames 16 ms, FreeRTOS tick 1 kHz (at 100 Hz, pdMS_TO_TICKS(6) was 0: short delays did not
+  happen), main loop paced with vTaskDelayUntil. Simulator: 60 fps with a 1 ms clock, F1 = zoom 1x-4x.
 - **Bio-Resonant UI** (from D:/bio-resonant-ui): IBM Plex Sans (4-bit anti-aliased; 12 / 12 Medium / 13 / 21 px,
   888 glyphs each, Cozette kept as the fallback for icons), the four circadian modes as themes (Dusk, Deep night,
   Daylight, Sunrise) generated from its tokens.css with APCA re-checked after RGB565 (contrast-preserving

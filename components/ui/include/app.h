@@ -112,6 +112,7 @@ typedef struct {
     int br_n;
     bool pw_show;              /* the eye: show typed passwords; reset whenever the screen changes */
     int pw_show_scr;
+    char query_prev[64];       /* the query the current hits are for (typing narrows them) */
     char dbname[64], path[256];
     char pw[128];
     int pwlen;

@@ -3,7 +3,7 @@
  *   - selection cross-fade: the old row's highlight fades out while the new one fades in (100 ms)
  *   - rows slide in from the right when a list / entry is entered (staggered, ~130 ms + 18 ms per row)
  *   - the toast slides up from behind the footer (120 ms)
- * Frames are driven from app_tick (30 fps, only while something is moving). A key press ends the
+ * Frames are driven from app_tick (60 fps, only while something is moving). A key press ends the
  * slide immediately; everything is off below 15 % battery, when dimmed and during passkey prompts. */
 #include "app_priv.h"
 
@@ -13,7 +13,7 @@
 #define SLIDE_DX 60
 #define TOAST_MS 120
 #define TOAST_DY TOAST_H
-#define FRAME_MS 33
+#define FRAME_MS 16                 /* 62.5 fps: the firmware loop is paced at 16 ms */
 #define LOW_BATTERY 15
 
 static int ease(int t) /* 0..256 -> 0..256, ease-out quad */

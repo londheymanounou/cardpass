@@ -263,14 +263,19 @@ static const uint8_t *corner_cov(int r, int n10)
                                         : powf(u, 2.5f) + powf(v, 2.5f);
                     hit += e <= 1.0f;
                 }
-            c->cov[j * r + i] = (uint8_t)(hit * 255 / 16);
+            c->cov[j * r + i] = (uint8_t)((hit * 15 + 8) / 16);   /* 4-bit: blended through the ramps */
         }
     return c->cov;
 }
 
-static inline void px(uint16_t *row, int x, uint16_t c, int a)
+/* corner pixel: coverage k (0..15) of c over what is there, through the (background, colour) ramp */
+static inline void px(uint16_t *row, int x, uint16_t c, int k, uint16_t *last_bg, const uint16_t **rp)
 {
-    if (x >= 0 && x < UI_W) row[x] = ui_mix(row[x], c, a);
+    if (x < 0 || x >= UI_W) return;
+    if (k == 15) { row[x] = c; return; }
+    uint16_t d = row[x];
+    if (!*rp || d != *last_bg) *rp = get_ramp(*last_bg = d, c);
+    row[x] = (*rp)[k];
 }
 
 void ui_round(ui_strip *s, int x, int y, int w, int h, int r, uint16_t c)
@@ -280,6 +285,8 @@ void ui_round(ui_strip *s, int x, int y, int w, int h, int r, uint16_t c)
     int n10 = fit(w, h, &r);
     if (r > MAXR) r = MAXR;
     const uint8_t *cov = r ? corner_cov(r, n10) : NULL;
+    uint16_t last_bg = 0;
+    const uint16_t *rp = NULL;
     int j0 = y > s->y0 ? y : s->y0, j1 = y + h < s->y0 + s->h ? y + h : s->y0 + s->h;
     for (int yy = j0; yy < j1; yy++) {
         uint16_t *row = s->px + (yy - s->y0) * UI_W;
@@ -288,8 +295,8 @@ void ui_round(ui_strip *s, int x, int y, int w, int h, int r, uint16_t c)
         const uint8_t *cr = cov + qj * r;
         for (int i = 0; i < r; i++) {
             if (!cr[i]) continue;
-            px(row, x + i, c, cr[i]);
-            px(row, x + w - 1 - i, c, cr[i]);
+            px(row, x + i, c, cr[i], &last_bg, &rp);
+            px(row, x + w - 1 - i, c, cr[i], &last_bg, &rp);
         }
         span(row, x + r, x + w - r, c);
     }

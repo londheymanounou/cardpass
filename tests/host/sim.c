@@ -1,14 +1,15 @@
 /* Desktop simulator: the real UI code in a Win32 window (240x135 scaled up), driven by the PC keyboard.
  *   sim [testdata dir]      works on a COPY of the databases in %TEMP%\cardpass_sim (master password: test)
  * Keys: type normally; arrows = fn+; , . /; Esc = fn+`; Ctrl+letter = fn+letter (Ctrl+L lock, Ctrl+S save);
- * Delete = fn+Backspace. Typing, Wi-Fi, Bluetooth and the USB drive are fake. Not the device: see docs/qemu.md. */
+ * Delete = fn+Backspace. F1: zoom 1x / 2x / 3x / 4x. Runs at 60 fps like the device loop. Typing, Wi-Fi, Bluetooth and the USB drive are fake. Not the device: see docs/qemu.md. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <mmsystem.h>
 #include <stdio.h>
 #include <string.h>
 #include "../../components/ui/app_priv.h"
 
-#define SCALE 4
+static int SCALE = 4;            /* F1 cycles 1x..4x: 1x is closest to the 243-ppi panel seen from a normal distance */
 static app A;
 static uint16_t panel[UI_W * UI_H];
 static uint32_t bgr[UI_W * UI_H];
@@ -73,7 +74,7 @@ static int64_t now_fn(void *c, bool *valid)
     return (int64_t)t + time_off;
 }
 static void set_time_fn(void *c, int64_t t) { (void)c; time_off = t - now_fn(NULL, &(bool){0}) + time_off; time_valid = true; }
-static uint32_t millis_fn(void *c) { (void)c; return GetTickCount(); }
+static uint32_t millis_fn(void *c) { (void)c; return timeGetTime(); }   /* 1 ms steps (GetTickCount moves in 15.6 ms ones) */
 static int battery(void *c) { (void)c; return 76; }
 static bool hid_ready(void *c) { (void)c; return true; }
 static void stroke(void *c, uint8_t k, uint8_t m) { (void)c; (void)k; (void)m; }
@@ -145,6 +146,14 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         case VK_LEFT: key(K_LEFT); break;
         case VK_RIGHT: key(K_RIGHT); break;
         case VK_DELETE: key(K_BACKSPACE | K_FN); break;
+        case VK_F1: {
+            SCALE = SCALE % 4 + 1;
+            RECT r = {0, 0, UI_W * SCALE, UI_H * SCALE};
+            AdjustWindowRect(&r, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, FALSE);
+            SetWindowPos(h, NULL, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
+            InvalidateRect(h, NULL, TRUE);
+            break;
+        }
         default:
             if (ctrl && w >= 'A' && w <= 'Z') key((uint32_t)(w - 'A' + 'a') | K_FN);
         }
@@ -172,7 +181,7 @@ static void pump_fn(void *c)
         TranslateMessage(&msg);
         DispatchMessageA(&msg);
     }
-    app_tick(&A, GetTickCount());
+    app_tick(&A, timeGetTime());
     present(NULL);
 }
 
@@ -227,9 +236,15 @@ int main(int argc, char **argv)
     cp_settings_default(&cfg);
     app_init(&A, &PLAT, &cfg);
     present(NULL);
+    timeBeginPeriod(1);                                    /* 1 ms timer: Windows' default 15.6 ms cannot pace 60 fps */
+    DWORD next = timeGetTime();
     while (!quit) {
         pump_fn(NULL);
-        Sleep(10);
+        next += 16;                                         /* 62.5 Hz, like the firmware loop */
+        DWORD now = timeGetTime();
+        if ((LONG)(next - now) > 0) Sleep(next - now);
+        else next = now;
     }
+    timeEndPeriod(1);
     return 0;
 }

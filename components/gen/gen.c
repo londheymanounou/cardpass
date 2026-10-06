@@ -82,6 +82,20 @@ double gen_password_bits(const gen_pw_opts *o)
 
 unsigned gen_word_count(void) { return gen_wordlist_count; }
 
+void gen_words_begin(gen_word_iter *it) { it->pos = 0, it->len = 0, it->word[0] = 0; }
+
+void gen_words_at(gen_word_iter *it, unsigned pos, char first) { it->pos = pos, it->word[0] = first, it->len = 1; }
+
+bool gen_words_next(gen_word_iter *it)
+{
+    if (it->pos >= gen_wordlist_size) return false;
+    size_t len = gen_wordlist[it->pos++] - 1u;            /* prefix shared with the previous word */
+    while (it->pos < gen_wordlist_size && gen_wordlist[it->pos] >= 0x20 && len < 15) it->word[len++] = (char)gen_wordlist[it->pos++];
+    it->word[len] = 0;
+    it->len = len;
+    return true;
+}
+
 const char *gen_word(unsigned idx, char out[16])
 {
     /* Front-coded list: byte < 0x20 = (shared prefix length + 1), then the rest. */
