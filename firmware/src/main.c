@@ -249,7 +249,7 @@ void app_main(void)
     cp_settings cfg;
     hw_settings_load(text, sizeof text);
     cp_settings_parse(&cfg, text);
-#ifdef CARDPASS_QEMU
+#if defined(CARDPASS_QEMU) && !defined(CARDPASS_QEMU_UI)
     cfg.splash = false;                              /* the scripted keys start at the picker */
 #endif
     brightness = cfg.brightness;

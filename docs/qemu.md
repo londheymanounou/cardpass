@@ -49,3 +49,14 @@ What changed because of this test:
   database after the save's own buffers are freed. A save now needs about the same RAM as an unlock.
 - Unlock and save both top out around 800-900 entries here (about 700-800 on the device, to be measured).
   Above that unlock fails with "Out of memory (database too large?)".
+
+## Seeing the screen (interactive)
+QEMU has no model of the panel, so the `qemu-ui` build sends every changed 16-row strip over the serial port
+(run-length coded, base64) and reads keys back; `tools/qemu_view.py` draws it at the Cardputer's true physical size
+(240x135 at 0.1052 mm, scaled from your monitor's real millimetres; F1 zooms 2x/3x/4x) and forwards your keyboard.
+```
+cd firmware && python -m platformio run -e qemu-ui
+python tools/qemu_view.py          # test databases, password "test"
+```
+This is the real firmware on an emulated ESP32-S3 (not the PC simulator), but timing is the emulator's, not the
+chip's: it is for looking, not for judging speed.

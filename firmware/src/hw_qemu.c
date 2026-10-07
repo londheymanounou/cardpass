@@ -11,12 +11,50 @@
 #include "wear_levelling.h"
 #include "hw.h"
 
+#ifdef CARDPASS_QEMU_UI
+/* ---- display bridge (env qemu-ui, tools/qemu_view.py): changed strips go out over the serial port as
+ * "\x02FB <y> <h> <base64 of RLE>" lines, RLE = (count 1..255, RGB565 little-endian) triples. The viewer draws them;
+ * it sends keys back as "k<8 hex digits>" lines. Strips the viewer already has (same hash) are not sent. ---- */
+#include "driver/uart.h"
+#include "mbedtls/base64.h"
+static uint16_t strip[UI_W * HW_STRIP_H];
+static uint64_t shown[(UI_H + HW_STRIP_H - 1) / HW_STRIP_H];
+void hw_display_init(void) {}
+uint16_t *hw_display_strip(void) { return strip; }
+void hw_display_push(int y0, int h, uint16_t *px)
+{
+    static uint8_t rle[UI_W * HW_STRIP_H * 3];
+    static unsigned char b64[UI_W * HW_STRIP_H * 4 + 8];
+    uint64_t hs = 1469598103934665603ULL ^ (uint64_t)y0;
+    for (int i = 0; i < UI_W * h; i++) hs = (hs ^ px[i]) * 1099511628211ULL;
+    int k = y0 / HW_STRIP_H;
+    if (k >= 0 && k < (int)(sizeof shown / sizeof *shown)) {
+        if (shown[k] == (hs | 1)) return;
+        shown[k] = hs | 1;
+    }
+    size_t n = 0;
+    for (int i = 0; i < UI_W * h;) {
+        int run = 1;
+        while (i + run < UI_W * h && px[i + run] == px[i] && run < 255) run++;
+        rle[n++] = (uint8_t)run;
+        rle[n++] = (uint8_t)px[i];
+        rle[n++] = (uint8_t)(px[i] >> 8);
+        i += run;
+    }
+    size_t out = 0;
+    mbedtls_base64_encode(b64, sizeof b64, &out, rle, n);
+    printf("\x02" "FB %d %d %.*s\n", y0, h, (int)out, b64);
+    fflush(stdout);
+}
+void hw_display_forget(void) {}
+#else
 /* ---- display: nothing to draw on ---- */
 static uint16_t strip[UI_W * HW_STRIP_H];
 void hw_display_init(void) {}
 uint16_t *hw_display_strip(void) { return strip; }
 void hw_display_push(int y0, int h, uint16_t *px) { (void)y0; (void)h; (void)px; }
 void hw_display_forget(void) {}
+#endif
 void hw_display_brightness(int pct) { (void)pct; }
 void hw_display_sleep(bool on) { (void)on; }
 void hw_display_fade(int pct, int ms) { (void)pct; (void)ms; }
@@ -32,7 +70,7 @@ static unsigned nsteps;
 static void add(uint32_t key, const char *mark) { script[nsteps].key = key; script[nsteps].mark = mark; nsteps++; }
 
 /* per database: pick it, unlock with "test", search, open an entry, reveal, lock */
-static void build_script(void)
+__attribute__((unused)) static void build_script(void)
 {
     static const char *const names[NFILES] = {"q0200", "q0400", "q0600", "q0800", "q1000"};
     for (int f = 0; f < NFILES; f++) {
@@ -77,7 +115,7 @@ static void build_script(void)
 }
 
 const char *qemu_state(int *scr, int *open);
-static void report(const char *what)
+__attribute__((unused)) static void report(const char *what)
 {
     int scr, open;
     const char *msg = qemu_state(&scr, &open);
@@ -88,6 +126,27 @@ static void report(const char *what)
         esp_rom_printf("QEMU heap integrity: %s\n", heap_caps_check_integrity_all(true) ? "OK" : "CORRUPT");
 }
 
+#ifdef CARDPASS_QEMU_UI
+void hw_keys_init(void) { uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0); }
+void hw_keys_flush(void) {}
+void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
+{
+    static char line[16];
+    static int n;
+    uint8_t c;
+    (void)now_ms;
+    while (uart_read_bytes(UART_NUM_0, &c, 1, 0) == 1) {
+        if (c == '\n' || c == '\r') {
+            line[n] = 0;
+            unsigned key = 0;
+            if (n == 9 && line[0] == 'k' && sscanf(line + 1, "%8x", &key) == 1) { on_key(key, true); on_key(key, false); }
+            n = 0;
+        } else if (n < (int)sizeof line - 1) {
+            line[n++] = (char)c;
+        }
+    }
+}
+#else
 void hw_keys_init(void) {}
 void hw_keys_flush(void) {}
 void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
@@ -103,6 +162,7 @@ void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
     on_key(s->key, true);
     on_key(s->key, false);
 }
+#endif
 
 /* ---- SD card: the "storage" partition (FAT image built on the PC) mounted at /sd ---- */
 static bool mounted;
