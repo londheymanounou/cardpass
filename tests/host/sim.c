@@ -60,14 +60,52 @@ void *__wrap_realloc(void *q, size_t n)
     return r + HDR;
 }
 
+/* ---- the Cardputer's speed for the slow parts (estimates until docs/first-hardware.md 3j measures them) ----
+ * SD card over SPI at 20 MHz: every fread / fwrite of CardPass (the database, the Argon2 swap file) costs a command
+ * latency plus its bytes at the card's throughput. CPU: an Argon2 block costs what the 240 MHz ESP32-S3 needs, charged
+ * through the idle hook Argon2 calls every 256 blocks. F2 switches between Cardputer and PC speed. */
+#define SD_READ_US 400.0          /* per read command */
+#define SD_READ_BPS 1800000.0     /* bytes per second */
+#define SD_WRITE_US 600.0
+#define SD_WRITE_BPS 1200000.0
+#define ARGON2_BLOCK_US 150.0     /* one 1 KiB block (BLAKE2b-based compression, 64-bit maths on a 32-bit core) */
+static bool device_speed = true;
+static double debt_us;            /* time owed to the model, paid in whole milliseconds */
+static void pay(double us)
+{
+    if (!device_speed) return;
+    debt_us += us;
+    if (debt_us < 2000) return;
+    DWORD t0 = timeGetTime();
+    Sleep((DWORD)(debt_us / 1000));
+    debt_us -= (timeGetTime() - t0) * 1000.0;                  /* what was really slept, overshoot included */
+}
+size_t __real_fread(void *p, size_t s, size_t n, FILE *f);
+size_t __real_fwrite(const void *p, size_t s, size_t n, FILE *f);
+size_t __wrap_fread(void *p, size_t s, size_t n, FILE *f)
+{
+    size_t r = __real_fread(p, s, n, f);
+    pay(SD_READ_US + (double)(r * s) * 1e6 / SD_READ_BPS);
+    return r;
+}
+size_t __wrap_fwrite(const void *p, size_t s, size_t n, FILE *f)
+{
+    size_t r = __real_fwrite(p, s, n, f);
+    pay(SD_WRITE_US + (double)(r * s) * 1e6 / SD_WRITE_BPS);
+    return r;
+}
+static void argon2_cpu(void) { pay(256 * ARGON2_BLOCK_US); }
+
 static void heap_title(void)
 {
     static size_t shown_used = (size_t)-1, shown_peak;
+    static int shown_speed = -1;
     extern HWND hwnd_main;
-    if (heap_used == shown_used && heap_peak == shown_peak) return;
-    shown_used = heap_used, shown_peak = heap_peak;
-    char t[160];
-    snprintf(t, sizeof t, "CardPass simulator (password: test) | heap %u / %u KB, peak %u KB (Cardputer ADV)",
+    if (heap_used == shown_used && heap_peak == shown_peak && shown_speed == device_speed) return;
+    shown_used = heap_used, shown_peak = heap_peak, shown_speed = device_speed;
+    char t[200];
+    snprintf(t, sizeof t, "CardPass simulator (password: test) | %s | heap %u / %u KB, peak %u KB",
+             device_speed ? "Cardputer speed (SD + Argon2 estimated), F2: PC speed" : "PC speed, F2: Cardputer speed",
              (unsigned)(heap_used / 1024), DEVICE_HEAP / 1024, (unsigned)(heap_peak / 1024));
     SetWindowTextA(hwnd_main, t);
 }
@@ -209,6 +247,7 @@ static LRESULT CALLBACK proc(HWND h, UINT m, WPARAM w, LPARAM l)
         case VK_LEFT: key(K_LEFT); break;
         case VK_RIGHT: key(K_RIGHT); break;
         case VK_DELETE: key(K_BACKSPACE | K_FN); break;
+        case VK_F2: device_speed = !device_speed; heap_title(); break;
         case VK_F1: {
             SCALE = SCALE % 4 + 1;
             RECT r = {0, 0, UI_W * SCALE, UI_H * SCALE};
@@ -301,6 +340,7 @@ int main(int argc, char **argv)
     char swp[MAX_PATH + 32];
     snprintf(swp, sizeof swp, "%s/.argon2.swp", wdir);
     kdbx_set_argon2_memory(128 * 1024, swp, 32 * 1024);
+    kdbx_set_idle_hook(argon2_cpu);
     cp_settings cfg;
     cp_settings_default(&cfg);
     app_init(&A, &PLAT, &cfg);
