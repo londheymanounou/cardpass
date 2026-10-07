@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "../../components/ui/app_priv.h"
+#include "../../components/ui/motion_br.h"
 #include "miniz.h"
 #ifdef _WIN32
 #include <direct.h>
@@ -501,7 +502,7 @@ int main(int argc, char **argv)
         int old = A.sel;
         key(K_DOWN);
         CHECK(A.sel_prev == old && ap_row_weight(&A, A.sel) == 0 && ap_row_weight(&A, old) == 256, "cross-fade starts: old row lit, new row not yet");
-        app_tick(&A, A.now_ms + 50);
+        app_tick(&A, A.now_ms + BR_MS_FEEDBACK / 2);      /* half of the token's feedback duration */
         int w = ap_row_weight(&A, A.sel);
         CHECK(w > 100 && w < 160 && ap_row_weight(&A, old) == 256 - w, "halfway: %d", w);
         snap("73_crossfade_half");

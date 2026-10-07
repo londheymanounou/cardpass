@@ -51,9 +51,11 @@ What changed because of this test:
   Above that unlock fails with "Out of memory (database too large?)".
 
 ## Seeing the screen (interactive)
-QEMU has no model of the panel, so the `qemu-ui` build sends every changed 16-row strip over the serial port
-(run-length coded, base64) and reads keys back; `tools/qemu_view.py` draws it at the Cardputer's true physical size
-(240x135 at 0.1052 mm, scaled from your monitor's real millimetres; F1 zooms 2x/3x/4x) and forwards your keyboard.
+QEMU has no model of the panel. The `qemu-ui` build keeps a copy of the screen in RAM (only this build: the device never has
+a frame buffer) and prints its address once; `tools/qemu_view.py` reads it straight out of the emulator through QMP
+(`memsave`, ~60 times a second; ~140 reads/s are possible) and draws it, 4x by default (F1: 3x / 2x / true size; F2/F3
+calibrate true size). Keys go back over the serial port. QEMU's serial port only moves ~12 KB/s, which is why pixels do
+not use it (the first version did: a full screen took 3.4 s). Key to screen: ~30 ms.
 ```
 cd firmware && python -m platformio run -e qemu-ui
 python tools/qemu_view.py          # test databases, password "test"

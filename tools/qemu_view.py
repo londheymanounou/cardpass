@@ -7,7 +7,7 @@ reports its millimetres wrong: hold a ruler to the window, the image must be 25.
     cd firmware && python -m platformio run -e qemu-ui
     python tools/qemu_view.py            (first run builds the SD image from testdata/)
 """
-import base64, ctypes, os, queue, shutil, subprocess, sys, threading, tkinter as tk
+import ctypes, json, socket, shutil, subprocess, sys, threading, time, tkinter as tk
 from pathlib import Path
 from PIL import Image, ImageTk
 
@@ -35,25 +35,61 @@ subprocess.run([sys.executable, str(PIO / "tool-esptoolpy/esptool.py"), "--chip"
                 "0x0", str(BUILD / "bootloader.bin"), "0x8000", str(BUILD / "partitions.bin"),
                 "0xe000", str(BUILD / "ota_data_initial.bin"), "0x10000", str(BUILD / "firmware.bin"), "0x3E0000", str(img)],
                check=True, stdout=subprocess.DEVNULL)
+QMP_PORT = 4444
 qemu = subprocess.Popen([str(HOME / "qemu/bin/qemu-system-xtensa.exe"), "-M", "esp32s3", "-m", "8M", "-nographic",
+                         "-qmp", f"tcp:127.0.0.1:{QMP_PORT},server,nowait",
                          "-drive", f"file={flash},if=mtd,format=raw",
                          "-global", "driver=timer.esp32s3.timg,property=wdt_disable,value=true"],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
 
-# ---- strips from the firmware ----
-strips = queue.Queue()
+# ---- the screen: the firmware prints where its screen copy lives; we read that memory through QMP ----
+# (QEMU's serial port only moves ~12 KB/s: fine for keys and logs, far too slow for pixels.)
+fb_addr = None
+latest = None                                   # newest screen bytes, set by the poller
 
 
 def reader():
+    global fb_addr
     for line in qemu.stdout:
-        if line.startswith(b"\x02FB "):
-            _, y, h, data = line.split(b" ", 3)
-            strips.put((int(y), int(h), base64.b64decode(data.strip())))
+        if line.startswith(b"\x02FBADDR "):
+            fb_addr = int(line.split()[1], 16)
         else:
             sys.stdout.write(line.decode("utf-8", "replace"))
 
 
+def poller():
+    global latest
+    dump = HOME / "fb.bin"
+    while fb_addr is None:
+        time.sleep(0.05)
+    for _ in range(100):
+        try:
+            sock = socket.create_connection(("127.0.0.1", QMP_PORT))
+            break
+        except OSError:
+            time.sleep(0.1)
+    f = sock.makefile("rwb")
+    f.readline()                                # greeting
+    def qmp(cmd, **args):
+        f.write(json.dumps({"execute": cmd, "arguments": args} if args else {"execute": cmd}).encode() + b"\n")
+        f.flush()
+        while True:
+            r = json.loads(f.readline())
+            if "return" in r or "error" in r:
+                return r
+    qmp("qmp_capabilities")
+    while qemu.poll() is None:
+        t = time.time()
+        if "return" in qmp("memsave", val=fb_addr, size=W * H * 2, filename=str(dump), **{"cpu-index": 0}):
+            try:
+                latest = dump.read_bytes()
+            except OSError:
+                pass
+        time.sleep(max(0.0, 1 / 60 - (time.time() - t)))
+
+
 threading.Thread(target=reader, daemon=True).start()
+threading.Thread(target=poller, daemon=True).start()
 
 # ---- window ----
 try:
@@ -86,20 +122,21 @@ def show():
     label.configure(image=label.photo)
 
 
+shown = None
+
+
 def poll():
-    changed = False
-    while not strips.empty():
-        y, h, rle = strips.get()
-        px, i = bytearray(), 0
-        while i + 2 < len(rle) + 1 and i < len(rle):
-            n, c = rle[i], rle[i + 1] | rle[i + 2] << 8
-            r, g, b = (c >> 11) << 3 | c >> 13, ((c >> 5) & 63) << 2 | (c >> 9) & 3, (c & 31) << 3 | (c >> 2) & 7
-            px += bytes((r, g, b)) * n
-            i += 3
-        if len(px) == W * h * 3:
-            panel.paste(Image.frombytes("RGB", (W, h), bytes(px)), (0, y))
-            changed = True
-    if changed:
+    global shown
+    data = latest
+    if data is not None and data is not shown and len(data) == W * H * 2:
+        shown = data
+        px = bytearray(W * H * 3)
+        for i in range(W * H):                  # RGB565 little-endian -> RGB888
+            c = data[2 * i] | data[2 * i + 1] << 8
+            px[3 * i] = (c >> 11) << 3 | c >> 13
+            px[3 * i + 1] = ((c >> 5) & 63) << 2 | (c >> 9) & 3
+            px[3 * i + 2] = (c & 31) << 3 | (c >> 2) & 7
+        panel.paste(Image.frombytes("RGB", (W, H), bytes(px)))
         show()
     root.after(16, poll)
 

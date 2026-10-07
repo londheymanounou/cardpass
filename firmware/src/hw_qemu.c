@@ -12,40 +12,20 @@
 #include "hw.h"
 
 #ifdef CARDPASS_QEMU_UI
-/* ---- display bridge (env qemu-ui, tools/qemu_view.py): changed strips go out over the serial port as
- * "\x02FB <y> <h> <base64 of RLE>" lines, RLE = (count 1..255, RGB565 little-endian) triples. The viewer draws them;
- * it sends keys back as "k<8 hex digits>" lines. Strips the viewer already has (same hash) are not sent. ---- */
+/* ---- display bridge (env qemu-ui, tools/qemu_view.py). QEMU's serial port runs at ~12 KB/s, far too slow for
+ * pixels, so this build (and only this one: the device never has a frame buffer) keeps a copy of the screen in RAM;
+ * the viewer reads it straight out of the emulator through QMP (memsave) ~60 times a second. Its address goes out
+ * once over serial as "\x02FBADDR <hex>". Keys come back over serial as "k<8 hex digits>" lines. ---- */
 #include "driver/uart.h"
-#include "mbedtls/base64.h"
 static uint16_t strip[UI_W * HW_STRIP_H];
-static uint64_t shown[(UI_H + HW_STRIP_H - 1) / HW_STRIP_H];
-void hw_display_init(void) {}
-uint16_t *hw_display_strip(void) { return strip; }
-void hw_display_push(int y0, int h, uint16_t *px)
+uint16_t qemu_fb[UI_W * UI_H];
+void hw_display_init(void)
 {
-    static uint8_t rle[UI_W * HW_STRIP_H * 3];
-    static unsigned char b64[UI_W * HW_STRIP_H * 4 + 8];
-    uint64_t hs = 1469598103934665603ULL ^ (uint64_t)y0;
-    for (int i = 0; i < UI_W * h; i++) hs = (hs ^ px[i]) * 1099511628211ULL;
-    int k = y0 / HW_STRIP_H;
-    if (k >= 0 && k < (int)(sizeof shown / sizeof *shown)) {
-        if (shown[k] == (hs | 1)) return;
-        shown[k] = hs | 1;
-    }
-    size_t n = 0;
-    for (int i = 0; i < UI_W * h;) {
-        int run = 1;
-        while (i + run < UI_W * h && px[i + run] == px[i] && run < 255) run++;
-        rle[n++] = (uint8_t)run;
-        rle[n++] = (uint8_t)px[i];
-        rle[n++] = (uint8_t)(px[i] >> 8);
-        i += run;
-    }
-    size_t out = 0;
-    mbedtls_base64_encode(b64, sizeof b64, &out, rle, n);
-    printf("\x02" "FB %d %d %.*s\n", y0, h, (int)out, b64);
+    printf("\x02" "FBADDR %08x\n", (unsigned)(uintptr_t)qemu_fb);
     fflush(stdout);
 }
+uint16_t *hw_display_strip(void) { return strip; }
+void hw_display_push(int y0, int h, uint16_t *px) { memcpy(qemu_fb + y0 * UI_W, px, sizeof(uint16_t) * UI_W * (size_t)h); }
 void hw_display_forget(void) {}
 #else
 /* ---- display: nothing to draw on ---- */

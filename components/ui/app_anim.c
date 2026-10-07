@@ -1,28 +1,23 @@
 /* Optional UI animations (Settings -> Animations). No framebuffer exists, so every effect is a pure
  * function of state + time, evaluated while the strips are drawn:
- *   - selection cross-fade: the old row's highlight fades out while the new one fades in (100 ms)
- *   - rows slide in from the right when a list / entry is entered (staggered, ~130 ms + 18 ms per row)
- *   - the toast slides up from behind the footer (120 ms)
+ *   - selection cross-fade: the old row's highlight fades out while the new one fades in (80 ms)
+ *   - rows slide in from the right when a list / entry is entered (staggered, 161 ms + 18 ms per row)
+ *   - the toast slides up from behind the footer (161 ms)
  * Frames are driven from app_tick (60 fps, only while something is moving). A key press ends the
  * slide immediately; everything is off below 15 % battery, when dimmed and during passkey prompts. */
 #include "app_priv.h"
+#include "motion_br.h"
 
-#define SEL_MS 100
-#define SLIDE_MS 130
+#define SEL_MS BR_MS_FEEDBACK      /* Bio-Resonant tiers (motion_br.h, from its tokens): 80 ms */
+#define SLIDE_MS BR_MS_ELEMENT     /* 161 ms */
 #define SLIDE_STAGGER 18
 #define SLIDE_DX 60
-#define TOAST_MS 120
+#define TOAST_MS BR_MS_ELEMENT     /* 161 ms */
 #define TOAST_DY TOAST_H
 #define FRAME_MS 16                 /* 62.5 fps: the firmware loop is paced at 16 ms */
 #define LOW_BATTERY 15
 
-static int ease(int t) /* 0..256 -> 0..256, ease-out quad */
-{
-    if (t <= 0) return 0;
-    if (t >= 256) return 256;
-    int r = 256 - t;
-    return 256 - (r * r >> 8);
-}
+static int ease(int t) { return br_ease(t); }   /* the design system's spring step response, not a hand-picked curve */
 
 static uint16_t blend(uint16_t c0, uint16_t c1, int w)
 {
