@@ -1,7 +1,8 @@
 """See the real firmware's screen: runs the qemu-ui build in Espressif's QEMU and draws what it sends, at the
 Cardputer's true physical size (panel 240x135 at 0.1052 mm pitch, from your monitor's real millimetres). Your
 keyboard goes to the firmware: type, Enter, Backspace, Tab, Esc (fn+`), arrows, Ctrl+letter = fn+letter,
-Delete = fn+Backspace. F1: true size / 2x / 3x / 4x. Test databases: password "test".
+Delete = fn+Backspace. F1: true size / 2x / 3x / 4x. F2 / F3: calibrate true size (-/+ 5%) if your monitor
+reports its millimetres wrong: hold a ruler to the window, the image must be 25.2 mm wide. Test databases: password "test".
 
     cd firmware && python -m platformio run -e qemu-ui
     python tools/qemu_view.py            (first run builds the SD image from testdata/)
@@ -71,7 +72,11 @@ label.pack()
 
 def title():
     s = scales[si]
-    root.title(f"CardPass in QEMU ({'true size, %.1f x %.1f mm' % (W * PITCH_MM, H * PITCH_MM) if si == 0 else '%dx' % s})  F1: zoom")
+    if si == 0:
+        what = f"true size: should measure {W * PITCH_MM:.1f} mm wide ({round(W * s)} px, calibration x{scales[0] / TRUE:.2f})  F2/F3 adjust"
+    else:
+        what = f"{s}x"
+    root.title(f"CardPass in QEMU, {what}  F1: zoom")
 
 
 def show():
@@ -116,6 +121,11 @@ def on_key(e):
     global si
     if e.keysym == "F1":
         si = (si + 1) % len(scales)
+        title()
+        show()
+    elif e.keysym in ("F2", "F3"):
+        scales[0] *= 0.95 if e.keysym == "F2" else 1.05
+        si = 0
         title()
         show()
     elif e.keysym in SPECIAL:
