@@ -134,7 +134,7 @@ frames = []                                     # times the window showed a new 
 def poll():
     global shown
     data = latest
-    if data is not None and data is not shown and len(data) == W * H * 2:
+    if data is not None and data != shown and len(data) == W * H * 2:     # only when the pixels changed
         shown = data
         panel.paste(Image.frombytes("RGB", (W, H), data, "raw", "BGR;16"))   # RGB565 LE, decoded in C
         show()
@@ -145,7 +145,7 @@ def poll():
     if int(now * 4) != getattr(poll, "q", None):                      # title 4x a second
         poll.q = int(now * 4)
         avg = sum(frame_us) / len(frame_us) / 1000 if frame_us else 0
-        title(f"  |  {len(frames)} fps shown, firmware draws a frame in {avg:.1f} ms (emulated)")
+        title(f"  |  {len(frames)} new frames/s (0 when nothing moves), firmware draws one in {avg:.1f} ms (emulated)")
     root.after(4, poll)
 
 
