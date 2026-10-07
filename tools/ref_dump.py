@@ -35,6 +35,7 @@ DBS = [
     ("argon2d_small.kdbx", "test", None, "ok"),
     ("argon2id_small.kdbx", "test", None, "ok"),
     ("argon2id_kpxc.kdbx", "test", None, "ok"),
+    ("argon2id_64mb.kdbx", "test", None, "ok"),
     ("argon2id_small.kdbx", "wrong", None, "bad_key"),
     ("kdbx31.kdbx", "test", None, "version"),
     ("kdbx31_kpxc.kdbx", "test", None, "version"),

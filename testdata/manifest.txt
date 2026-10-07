@@ -17,6 +17,7 @@ argon2.kdbx	74657374	-	ok
 argon2d_small.kdbx	74657374	-	ok
 argon2id_small.kdbx	74657374	-	ok
 argon2id_kpxc.kdbx	74657374	-	ok
+argon2id_64mb.kdbx	74657374	-	ok
 argon2id_small.kdbx	77726f6e67	-	bad_key
 kdbx31.kdbx	74657374	-	version
 kdbx31_kpxc.kdbx	74657374	-	version

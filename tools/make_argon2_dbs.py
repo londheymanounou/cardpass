@@ -3,10 +3,11 @@
     argon2d_small.kdbx      Argon2d,  1 MiB, 3 passes, 2 lanes, AES-256   (pykeepass)
     argon2id_small.kdbx     Argon2id, 512 KiB, 2 passes, 1 lane, ChaCha20 (pykeepass)
     argon2id_kpxc.kdbx      Argon2id, 2 MiB, 2 passes, 2 lanes, re-saved by keepassxc-cli (real KeePassXC output)
+    argon2id_64mb.kdbx      Argon2id, 64 MiB, 3 passes, 2 lanes, AES-256: a realistic size (swap file on the device)
 
 Password "test" (not a secret). Then run tools/ref_dump.py for the expected contents.
 
-    python tools/make_argon2_dbs.py
+    python tools/make_argon2_dbs.py [name.kdbx ...]
 """
 import os, struct, sys
 from pathlib import Path
@@ -36,6 +37,12 @@ def make(name, cipher, uuid, mem, iters, lanes, kpxc=False):
     print("made", name)
 
 
-make("argon2d_small.kdbx", "aes256", ARGON2D, 1 << 20, 3, 2)
-make("argon2id_small.kdbx", "chacha20", ARGON2ID, 512 << 10, 2, 1)
-make("argon2id_kpxc.kdbx", "aes256", ARGON2ID, 2 << 20, 2, 2, kpxc=True)
+DBS = {
+    "argon2d_small.kdbx": ("aes256", ARGON2D, 1 << 20, 3, 2, False),
+    "argon2id_small.kdbx": ("chacha20", ARGON2ID, 512 << 10, 2, 1, False),
+    "argon2id_kpxc.kdbx": ("aes256", ARGON2ID, 2 << 20, 2, 2, True),
+    "argon2id_64mb.kdbx": ("aes256", ARGON2ID, 64 << 20, 3, 2, False),   # a realistic size: swap on the device
+}
+for name in sys.argv[1:] or DBS:             # names on the command line: only those (the others keep their salts)
+    cipher, uuid, mem, iters, lanes, kpxc = DBS[name]
+    make(name, cipher, uuid, mem, iters, lanes, kpxc=kpxc)
