@@ -133,7 +133,9 @@ void ap_anim_tick(app *a, uint32_t now)
         snprintf(a->msg_prev, sizeof a->msg_prev, "%s", a->msg);
         a->toast_ms = now;
     }
-    if (!on || now - a->anim_frame_ms < FRAME_MS) return;
+    /* due after 3/4 of a frame: the loop wakes every 16 ms with jitter, and gating on a full 16 ms made a pass that
+     * woke at 15.9 ms skip its frame (53 fps measured in QEMU instead of the loop's 62.5) */
+    if (!on || now - a->anim_frame_ms < FRAME_MS * 3 / 4) return;
     bool sel = a->sel_prev >= 0 && now - a->sel_ms < SEL_MS + FRAME_MS;
     bool toast = a->msg[0] && now - a->toast_ms < TOAST_MS + FRAME_MS;
     bool slide = slide_running(a);

@@ -122,13 +122,23 @@ static void present(void *ctx)
     if (was_open && !A.db) hw_display_forget();          /* locked: no fingerprint of unlocked screens survives */
     was_open = A.db != NULL;
     int y0, y1;
+#ifdef CARDPASS_QEMU_UI
+    int64_t frame_t0 = esp_timer_get_time();
+    int frame_strips = 0;
+#endif
     while (app_dirty(&A, &y0, &y1)) {
         for (int y = y0 / HW_STRIP_H * HW_STRIP_H; y < y1; y += HW_STRIP_H) {   /* whole grid strips: comparable */
             ui_strip s = {hw_display_strip(), y, UI_H - y < HW_STRIP_H ? UI_H - y : HW_STRIP_H};
             app_draw(&A, &s);
             hw_display_push(y, s.h, s.px);
+#ifdef CARDPASS_QEMU_UI
+            frame_strips++;
+#endif
         }
     }
+#ifdef CARDPASS_QEMU_UI
+    if (frame_strips) printf("\x02" "FT %d %d\n", (int)(esp_timer_get_time() - frame_t0), frame_strips);   /* viewer: emulated frame time */
+#endif
     vTaskDelay(1); /* 1 ms: let the idle task and watchdog run during long operations (KDF, save) */
 }
 

@@ -45,6 +45,7 @@ qemu = subprocess.Popen([str(HOME / "qemu/bin/qemu-system-xtensa.exe"), "-M", "e
 # ---- the screen: the firmware prints where its screen copy lives; we read that memory through QMP ----
 # (QEMU's serial port only moves ~12 KB/s: fine for keys and logs, far too slow for pixels.)
 fb_addr = None
+frame_us = []                                   # the firmware's own render time per frame (emulated)
 latest = None                                   # newest screen bytes, set by the poller
 
 
@@ -53,6 +54,9 @@ def reader():
     for line in qemu.stdout:
         if line.startswith(b"\x02FBADDR "):
             fb_addr = int(line.split()[1], 16)
+        elif line.startswith(b"\x02FT "):
+            frame_us.append(int(line.split()[1]))
+            del frame_us[:-30]
         else:
             sys.stdout.write(line.decode("utf-8", "replace"))
 
@@ -85,7 +89,7 @@ def poller():
                 latest = dump.read_bytes()
             except OSError:
                 pass
-        time.sleep(max(0.0, 1 / 60 - (time.time() - t)))
+        time.sleep(max(0.0, 1 / 120 - (time.time() - t)))   # sample at 120 Hz: never more than half a frame late
 
 
 threading.Thread(target=reader, daemon=True).start()
@@ -106,13 +110,14 @@ label = tk.Label(root, bg="black")
 label.pack()
 
 
-def title():
+def title(extra=""):
+    title.extra = extra or getattr(title, "extra", "")
     s = scales[si]
     if si == 0:
         what = f"true size: should measure {W * PITCH_MM:.1f} mm wide ({round(W * s)} px, calibration x{scales[0] / TRUE:.2f})  F2/F3 adjust"
     else:
         what = f"{s}x"
-    root.title(f"CardPass in QEMU, {what}  F1: zoom")
+    root.title(f"CardPass in QEMU, {what}  F1: zoom{title.extra}")
 
 
 def show():
@@ -123,6 +128,7 @@ def show():
 
 
 shown = None
+frames = []                                     # times the window showed a new frame
 
 
 def poll():
@@ -130,15 +136,17 @@ def poll():
     data = latest
     if data is not None and data is not shown and len(data) == W * H * 2:
         shown = data
-        px = bytearray(W * H * 3)
-        for i in range(W * H):                  # RGB565 little-endian -> RGB888
-            c = data[2 * i] | data[2 * i + 1] << 8
-            px[3 * i] = (c >> 11) << 3 | c >> 13
-            px[3 * i + 1] = ((c >> 5) & 63) << 2 | (c >> 9) & 3
-            px[3 * i + 2] = (c & 31) << 3 | (c >> 2) & 7
-        panel.paste(Image.frombytes("RGB", (W, H), bytes(px)))
+        panel.paste(Image.frombytes("RGB", (W, H), data, "raw", "BGR;16"))   # RGB565 LE, decoded in C
         show()
-    root.after(16, poll)
+        frames.append(time.time())
+    now = time.time()
+    while frames and now - frames[0] > 1:
+        frames.pop(0)
+    if int(now * 4) != getattr(poll, "q", None):                      # title 4x a second
+        poll.q = int(now * 4)
+        avg = sum(frame_us) / len(frame_us) / 1000 if frame_us else 0
+        title(f"  |  {len(frames)} fps shown, firmware draws a frame in {avg:.1f} ms (emulated)")
+    root.after(4, poll)
 
 
 K_ENTER, K_FN = 0x110000, 0x1000000
