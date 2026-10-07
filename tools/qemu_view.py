@@ -63,7 +63,7 @@ try:
 except Exception:
     px_per_mm = 96 / 25.4
 TRUE = W * PITCH_MM * px_per_mm / W           # monitor pixels per panel pixel at true size
-scales, si = [TRUE, 2, 3, 4], 0
+scales, si = [TRUE, 2, 3, 4], 3                 # opens at 4x (like the simulator); F1 cycles
 panel = Image.new("RGB", (W, H))
 root = tk.Tk()
 label = tk.Label(root, bg="black")
