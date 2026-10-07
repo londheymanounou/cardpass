@@ -97,6 +97,7 @@ add_test(NAME settings COMMAND test_settings)
 if(WIN32)
   add_executable(sim WIN32 sim.c)
   target_link_libraries(sim ui gdi32 user32 winmm)
+  target_link_options(sim PRIVATE -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free)   # device-sized heap
 endif()
 
 add_executable(test_argon2 test_argon2.c)

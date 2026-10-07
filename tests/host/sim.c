@@ -11,9 +11,70 @@
 
 static int SCALE = 4;            /* F1 cycles 1x..4x: 1x is closest to the 243-ppi panel seen from a normal distance */
 static app A;
+
+/* ---- the Cardputer's memory, not the PC's: every malloc of CardPass is counted against the device's free heap
+ * (linked with --wrap=malloc,calloc,realloc,free). Past it, allocations fail as they would on the ESP32-S3. ---- */
+#define DEVICE_HEAP (280 * 1024)   /* QEMU measured ~318 KB free after boot; minus USB stack and 2 display DMA buffers */
+#define HDR 16
+void *__real_malloc(size_t n);
+void *__real_realloc(void *p, size_t n);
+void __real_free(void *p);
+static size_t heap_used, heap_peak;
+void *__wrap_malloc(size_t n)
+{
+    if (heap_used + n > DEVICE_HEAP) return NULL;
+    unsigned char *p = __real_malloc(n + HDR);
+    if (!p) return NULL;
+    memcpy(p, &n, sizeof n);
+    if ((heap_used += n) > heap_peak) heap_peak = heap_used;
+    return p + HDR;
+}
+void *__wrap_calloc(size_t a, size_t b)
+{
+    if (b && a > (size_t)-1 / b) return NULL;
+    void *p = __wrap_malloc(a * b);
+    if (p) memset(p, 0, a * b);
+    return p;
+}
+void __wrap_free(void *q)
+{
+    if (!q) return;
+    unsigned char *p = (unsigned char *)q - HDR;
+    size_t n;
+    memcpy(&n, p, sizeof n);
+    heap_used -= n;
+    __real_free(p);
+}
+void *__wrap_realloc(void *q, size_t n)
+{
+    if (!q) return __wrap_malloc(n);
+    unsigned char *p = (unsigned char *)q - HDR;
+    size_t old;
+    memcpy(&old, p, sizeof old);
+    if (heap_used - old + n > DEVICE_HEAP) return NULL;
+    unsigned char *r = __real_realloc(p, n + HDR);
+    if (!r) return NULL;
+    memcpy(r, &n, sizeof n);
+    heap_used = heap_used - old + n;
+    if (heap_used > heap_peak) heap_peak = heap_used;
+    return r + HDR;
+}
+
+static void heap_title(void)
+{
+    static size_t shown_used = (size_t)-1, shown_peak;
+    extern HWND hwnd_main;
+    if (heap_used == shown_used && heap_peak == shown_peak) return;
+    shown_used = heap_used, shown_peak = heap_peak;
+    char t[160];
+    snprintf(t, sizeof t, "CardPass simulator (password: test) | heap %u / %u KB, peak %u KB (Cardputer ADV)",
+             (unsigned)(heap_used / 1024), DEVICE_HEAP / 1024, (unsigned)(heap_peak / 1024));
+    SetWindowTextA(hwnd_main, t);
+}
 static uint16_t panel[UI_W * UI_H];
 static uint32_t bgr[UI_W * UI_H];
 static HWND hwnd;
+HWND hwnd_main;
 static char wdir[MAX_PATH];
 static bool quit;
 
@@ -125,6 +186,8 @@ static void present(void *c)
         bgr[i] = r << 16 | g << 8 | b;
     }
     InvalidateRect(hwnd, NULL, FALSE);
+    UpdateWindow(hwnd);                                 /* paint now: long work (KDF, Argon2 swap) shows its progress */
+    heap_title();
 }
 
 static void key(uint32_t k) { app_key(&A, k, true); app_key(&A, k, false); }
@@ -183,6 +246,7 @@ static void pump_fn(void *c)
     }
     app_tick(&A, timeGetTime());
     present(NULL);
+    heap_title();
 }
 
 int main(int argc, char **argv)
@@ -232,6 +296,11 @@ int main(int argc, char **argv)
     AdjustWindowRect(&r, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, FALSE);
     hwnd = CreateWindowA("cardpass_sim", "CardPass simulator (password: test)", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
                          CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, NULL, NULL, wc.hInstance, NULL);
+    hwnd_main = hwnd;
+    /* the firmware's Argon2 rule: at most 128 KiB in RAM, the rest through the encrypted swap file */
+    char swp[MAX_PATH + 32];
+    snprintf(swp, sizeof swp, "%s/.argon2.swp", wdir);
+    kdbx_set_argon2_memory(128 * 1024, swp, 32 * 1024);
     cp_settings cfg;
     cp_settings_default(&cfg);
     app_init(&A, &PLAT, &cfg);
