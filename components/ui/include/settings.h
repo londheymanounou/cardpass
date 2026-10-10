@@ -8,6 +8,7 @@
 typedef struct {
     int theme;             /* Bio-Resonant mode: 0 Dusk, 1 Deep night, 2 Daylight, 3 Sunrise (UI_THEME_*) */
     bool large_font, reveal_toggle, animations, splash;
+    bool fn_arrows;        /* arrows need fn + ; , . / (old behaviour); default: those keys are arrows, fn types them */
     int autolock_s, brightness, typing_delay_ms, tz_minutes, weak_bits, expiry_days;
     int dim_s, off_s;      /* idle seconds until the backlight dims / the screen turns off (0 = never) */
     char layout[24];

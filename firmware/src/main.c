@@ -143,6 +143,7 @@ static void present(void *ctx)
 }
 
 static void on_key(uint32_t key, bool down) { app_key(&A, key, down); }
+bool hw_keys_fn_arrows(void) { return A.cfg.fn_arrows; }
 
 /* ---- passkeys over USB (CTAPHID): reports are queued by the USB task, handled here ---- */
 static ctaphid HID;

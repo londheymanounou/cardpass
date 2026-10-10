@@ -91,11 +91,15 @@ static uint32_t int_low_since;
 static bool is_mod(int v) { return v == -KF_FN || v == -KF_SHIFT || v == -KF_CTRL || v == -KF_OPT || v == -KF_ALT; }
 static bool pressed(int x, int y) { return held >> (y * 14 + x) & 1; }
 
-/* app key code for a pressed position, honouring the modifiers held right now */
+/* app key code for a pressed position, honouring the modifiers held right now and Settings -> Arrows */
 static uint32_t translate(int x, int y)
 {
     bool fn = pressed(0, 2), shift = pressed(1, 2);
     int v = shift ? MAP[y][x].s : MAP[y][x].n;
+    if (!hw_keys_fn_arrows() && !shift && (v == ';' || v == ',' || v == '.' || v == '/')) {
+        if (fn) return (uint32_t)v;      /* direct arrows: fn types the character */
+        return v == ';' ? K_UP : v == ',' ? K_LEFT : v == '.' ? K_DOWN : K_RIGHT;
+    }
     if (fn) { /* fn + ; , . / = arrows, fn + ` = esc, fn + bksp = delete */
         if (v == ';' || v == ':') return K_UP;
         if (v == ',' || v == '<') return K_LEFT;

@@ -15,7 +15,7 @@ int main(void)
     CHECK(!memcmp(&s, &d, sizeof s), "empty -> defaults");
 
     s.theme = 3;
-    s.large_font = s.reveal_toggle = true;
+    s.large_font = s.reveal_toggle = s.fn_arrows = true;
     s.autolock_s = 60;
     s.tz_minutes = -300;
     strcpy(s.layout, "FR AZERTY");

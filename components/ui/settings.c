@@ -122,6 +122,7 @@ void cp_settings_parse(cp_settings *s, const char *text)
                 else if (!strcmp(k, "font")) s->large_font = !strcmp(v, "large");
                 else if (!strcmp(k, "reveal")) s->reveal_toggle = !strcmp(v, "toggle");
                 else if (!strcmp(k, "anim")) s->animations = strcmp(v, "off") != 0;
+                else if (!strcmp(k, "arrows")) s->fn_arrows = !strcmp(v, "fn");
                 else if (!strcmp(k, "splash")) s->splash = strcmp(v, "off") != 0;
                 else if (!strcmp(k, "autolock")) num(v, 0, 86400, &s->autolock_s);
                 else if (!strcmp(k, "brightness")) num(v, 5, 100, &s->brightness);
@@ -154,10 +155,10 @@ void cp_settings_parse(cp_settings *s, const char *text)
 size_t cp_settings_format(const cp_settings *s, char *out, size_t n)
 {
     int w = snprintf(out, n,
-                     "theme=%s\nfont=%s\nreveal=%s\nanim=%s\nsplash=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
+                     "theme=%s\nfont=%s\nreveal=%s\nanim=%s\nsplash=%s\narrows=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
                      "weak_bits=%d\nexpiry_days=%d\ndim=%d\nscreen_off=%d\nlayout=%s\nautotype=%s\nlast_db=%s\n",
                      THEME_KEYS[s->theme & 3], s->large_font ? "large" : "small", s->reveal_toggle ? "toggle" : "hold",
-                     s->animations ? "on" : "off", s->splash ? "on" : "off", s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
+                     s->animations ? "on" : "off", s->splash ? "on" : "off", s->fn_arrows ? "fn" : "direct", s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
                      s->dim_s, s->off_s, s->layout, s->autotype, s->last_db);
     if (w < 0 || (size_t)w >= n) return 0;
     for (int i = 0; i < s->nwifi; i++) {

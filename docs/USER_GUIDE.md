@@ -24,11 +24,12 @@ no cloud, and Wi-Fi is only used to set the clock while no database is open.
 
 ## Keys
 
-The Cardputer has no arrow keys, so **fn** does double duty:
+The Cardputer has no arrow keys: `;` `,` `.` `/` are up, left, down, right, and fn + the same key types the
+character itself. Settings -> Arrows = "fn + key" swaps that (fn + key = arrow, the key alone types).
 
 | keys | action |
 |---|---|
-| fn + `;` `,` `.` `/` | up, left, down, right |
+| `;` `,` `.` `/` | up, left, down, right (fn + key types `;` `,` `.` `/`) |
 | fn + `` ` `` | Esc |
 | `` ` `` (alone) | back |
 | fn + Backspace | delete (the selected entry) |

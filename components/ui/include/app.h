@@ -12,7 +12,7 @@
 #include "settings.h"
 #include "ui.h"
 
-/* Keys: a Unicode code point, or one of these (fn+; , . / are the arrows on the Cardputer). */
+/* Keys: a Unicode code point, or one of these (; , . / or fn+; , . / are the arrows on the Cardputer, Settings -> Arrows). */
 enum {
     K_ENTER = 0x110000, K_BACKSPACE, K_TAB, K_ESC, K_UP, K_DOWN, K_LEFT, K_RIGHT, K_DEL,
 };
