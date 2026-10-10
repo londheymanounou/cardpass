@@ -22,11 +22,14 @@ static const uint8_t fido_report[] = {0x06, 0xD0, 0xF1, 0x09, 0x01, 0xA1, 0x01, 
                                       0x75, 0x08, 0x95, 0x40, 0x81, 0x02, 0x09, 0x21, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75,
                                       0x08, 0x95, 0x40, 0x91, 0x02, 0xC0};
 
+#define CONFIG_LEN (TUD_CONFIG_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
 static const uint8_t config_desc[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_COUNT, 0, TUD_CONFIG_DESC_LEN + 2 * TUD_HID_DESC_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_COUNT, 0, CONFIG_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
     TUD_HID_DESCRIPTOR(ITF_KBD, STR_KBD, HID_ITF_PROTOCOL_KEYBOARD, sizeof kbd_report, 0x81, 8, 10),
     TUD_HID_INOUT_DESCRIPTOR(ITF_FIDO, STR_FIDO, HID_ITF_PROTOCOL_NONE, sizeof fido_report, 0x02, 0x82, 64, 5),
 };
+/* wTotalLength must match: a short one cuts the FIDO interface off and Windows rejects the device (Code 10) */
+_Static_assert(sizeof config_desc == CONFIG_LEN, "config descriptor length");
 
 static const char *strings[] = {(const char[]){0x09, 0x04}, "CardPass", "CardPass", "000001", "CardPass keyboard", "CardPass security key"};
 static QueueHandle_t fido_q;
@@ -63,6 +66,7 @@ static const uint8_t msc_config_desc[] = {
     TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN, 0, 100),
     TUD_MSC_DESCRIPTOR(0, 4, 0x01, 0x81, 64),
 };
+_Static_assert(sizeof msc_config_desc == TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN, "drive config descriptor length");
 static const char *msc_strings[] = {(const char[]){0x09, 0x04}, "CardPass", "CardPass drive", "000001", "CardPass SD card"};
 
 bool hw_usb_drive(bool enter)
