@@ -84,6 +84,7 @@ void ap_slide_apply(app *a, ui_strip *s)
         int t = (int)el <= start ? 0 : (int)((el - (uint32_t)start) * 256 / SLIDE_MS);
         int dx = SLIDE_DX * (256 - ease(t)) / 256;
         if (dx <= 0) continue;
+        a->anim_live = true;   /* drawn off position: the tick owes a settled redraw, even if it never sees the slide run */
         for (int yy = y > s->y0 ? y : s->y0; yy < y + h && yy < s->y0 + s->h; yy++) {
             uint16_t *row = s->px + (yy - s->y0) * UI_W;
             memmove(row + dx, row, (size_t)(UI_W - dx) * sizeof *row);

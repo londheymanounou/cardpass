@@ -524,6 +524,14 @@ int main(int argc, char **argv)
         while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);
         draw_band(settled, 0, UI_H);
         CHECK(memcmp(panel, settled, sizeof panel) == 0, "a slide whose last frame was missed still ends settled");
+        /* unlock/lock: the first frame is drawn at the slide's start, then the next tick is already past its end */
+        key('`');
+        key(K_ENTER);
+        while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);   /* rows fully pushed right */
+        app_tick(&A, A.now_ms + 3000);
+        while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);
+        draw_band(settled, 0, UI_H);
+        CHECK(memcmp(panel, settled, sizeof panel) == 0, "a slide that never got a frame still ends settled");
         A.cfg.animations = false;
         app_tick(&A, A.now_ms + 10);
         draw_band(moving, 0, UI_H);                    /* the same screen with animations off */

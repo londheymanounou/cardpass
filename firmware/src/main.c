@@ -164,8 +164,8 @@ static int fido_choose(void *ctx, const char *rp, const fido_cred *creds, size_t
 /* One pass of the device loop; also what modal screens (passkey confirmation) run while they wait. */
 static void pump(void *ctx)
 {
-    uint32_t now = hw_millis();
-    hw_keys_poll(on_key, now);
+    hw_keys_poll(on_key, hw_millis());
+    uint32_t now = hw_millis();   /* again: a key may have run for seconds (unlock, lock) */
     app_tick(&A, now);
     present(NULL);
     if (fido_modal && (int32_t)(now - keepalive_at) >= 0) {     /* tell the browser we are waiting for the user */
