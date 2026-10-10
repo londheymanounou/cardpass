@@ -298,7 +298,21 @@ checked by independent readers with `python tools/check_saved.py`.
   Options: PlatformIO `framework = espidf` (IDF 5) + M5GFX as an IDF component + own TCA8418
   driver (recommended), or pioarduino (Arduino 3 on IDF 5) + M5Cardputer.
 
+## First device session (2026-10-10, branch device-bringup-fixes)
+Cardputer ADV in hand. Flashed via M5Burner (full image). Confirmed on the device: display, keyboard,
+SD + database picker, unlock (owner's AES-KDF database), USB keyboard typing, Bluetooth pairing.
+Fixed from device reports:
+- USB: config descriptor wTotalLength was 7 bytes short (FIDO INOUT interface): Windows Code 10, no typing.
+- Stripes after unlock/lock: pump() read the clock before handling keys, so the slide-in started and
+  expired unseen; rows stayed shifted. Clock re-read + the slide marks itself live when drawn off position.
+- BLE could not start twice per boot (IDF 5.5 esp_hid never resets its HID slots): firmware/components/esp_hid
+  override. Untested on the device after the fix: reconnect without re-pairing.
+- UX: ; , . / are arrows without fn (Settings -> Arrows), fn+E reveals on the entry view, "Keyboard" setting
+  renamed "PC layout".
+Still unchecked on the device: BLE reconnect after the fix, passkeys, USB drive mode, clock/Wi-Fi, power/dim,
+battery, saving edits (keep a backup of real databases until test files pass), docs/first-hardware.md numbers.
+
 ## Next step
-Stage 1 on the device when it arrives: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
+Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
 ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),
 display, keyboard, SD, DB picker, unlock timing, AES-KDF benchmark (HW vs SW, 1 vs 2 cores).
