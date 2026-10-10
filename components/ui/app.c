@@ -549,6 +549,10 @@ void app_key(app *a, uint32_t key, bool down)
         if (r != a->revealed) a->revealed = r, ap_mark_all(a);
         return;
     }
+    if (a->scr == SCR_ENTRY && (k == 'e' || k == 'E') && fn) {   /* fn+E: the same eye as on password fields, always a toggle */
+        if (down) a->revealed = !a->revealed, ap_mark_all(a);
+        return;
+    }
     if (a->scr == SCR_SPLASH) { if (down) ap_splash_leave(a); return; }   /* any key skips the splash */
     if (!down) return;
     if (fn && (k == 'e' || k == 'E') && (a->scr == SCR_UNLOCK || a->scr == SCR_ACCOUNT || a->scr == SCR_CREATE || a->scr == SCR_TIME)) {

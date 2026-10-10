@@ -1085,6 +1085,10 @@ int main(int argc, char **argv)
             snap(nm);
             key('r');
             CHECK(!A.revealed, "second press hides it again");
+            key('e' | K_FN);
+            CHECK(A.revealed, "fn+E reveals too");
+            key('e' | K_FN);
+            CHECK(!A.revealed, "fn+E hides it again");
         }
         app_lock(&A);
     }
