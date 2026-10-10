@@ -520,9 +520,10 @@ int main(int argc, char **argv)
         snap("74_slide_start");
         app_tick(&A, A.now_ms + 60);
         snap("75_slide_mid");
-        app_tick(&A, A.now_ms + 500);
+        app_tick(&A, A.now_ms + 500);                  /* one stalled pass past the end (busy loop after unlock) */
         while (app_dirty(&A, &y0, &y1)) draw_band(panel, y0, y1);
         draw_band(settled, 0, UI_H);
+        CHECK(memcmp(panel, settled, sizeof panel) == 0, "a slide whose last frame was missed still ends settled");
         A.cfg.animations = false;
         app_tick(&A, A.now_ms + 10);
         draw_band(moving, 0, UI_H);                    /* the same screen with animations off */

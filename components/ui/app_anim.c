@@ -139,7 +139,12 @@ void ap_anim_tick(app *a, uint32_t now)
     bool sel = a->sel_prev >= 0 && now - a->sel_ms < SEL_MS + FRAME_MS;
     bool toast = a->msg[0] && now - a->toast_ms < TOAST_MS + FRAME_MS;
     bool slide = slide_running(a);
-    if (!sel && !toast && !slide) return;
+    bool was = a->anim_live;
+    a->anim_live = sel || toast || slide;
+    if (!a->anim_live) {   /* a busy loop (unlock) can skip past the last frame: draw the final state anyway */
+        if (was) ap_mark(a, CONTENT_Y, UI_H);
+        return;
+    }
     a->anim_frame_ms = now;
     if (slide || toast) ap_mark(a, CONTENT_Y, UI_H);
     else { ap_mark_row(a, a->sel_prev); ap_mark_row(a, a->sel); }

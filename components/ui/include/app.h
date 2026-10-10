@@ -159,7 +159,7 @@ typedef struct {
     bool fido_active;
 
     /* animations (optional, see app_anim.c) */
-    bool anim_on;
+    bool anim_on, anim_live;   /* anim_live: something was moving at the last frame */
     int sel_prev;
     uint32_t sel_ms, scr_ms, anim_frame_ms, toast_ms;
     int last_scr;
