@@ -190,7 +190,7 @@ void ap_settings_key(app *a, uint32_t k, bool fn)
 
 void ap_settings_draw(app *a, ui_strip *s, const char **hint)
 {
-    static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Dim after", "Screen off", "Keyboard", "Key delay",
+    static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Dim after", "Screen off", "PC layout", "Key delay",
                                         "Time zone", "Weak below", "Expiry warn", "Animations", "Auto-type", "Splash", "Arrows"};
     const cp_settings *c = &a->cfg;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);

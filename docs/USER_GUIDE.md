@@ -68,7 +68,8 @@ Passkeys created in KeePassXC show as *Passkey* rows.
 Auto-type understands `{USERNAME} {PASSWORD} {TITLE} {URL} {NOTES} {TOTP} {S:FieldName}`, keys like
 `{TAB 2}` `{ENTER}` `{DELAY 500}`, and `{DELAY=20}` for a slower typing speed. If any character cannot
 be typed on the chosen keyboard layout, **nothing is typed at all** (you get a message instead of a
-half-typed password). Set the host's layout in Settings -> Keyboard (US, UK, FR AZERTY, DE QWERTZ).
+half-typed password). Set the computer's keyboard layout in Settings -> PC layout (US, UK, FR AZERTY, DE QWERTZ): it is what the
+computer expects, not the Cardputer's own keys.
 
 ## The menu (Tab)
 
