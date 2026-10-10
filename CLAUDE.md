@@ -53,8 +53,10 @@ python tools/package.py                      # -> dist/CardPass.bin (launcher), 
 ```
 `firmware/src` = hardware layer (display, TCA8418 keyboard, SD, battery, NVS settings, RNG) + main loop;
 everything else is the shared `components/`. IDF builds with -Werror, so it finds real bugs the
-host build misses. Nothing has run on a device yet: see `docs/first-hardware.md`.
+host build misses. On-device bring-up (device in hand since 2026-10-10): `docs/first-hardware.md`.
 PlatformIO gotcha: it passes `src/` in `EXTRA_COMPONENT_DIRS`; the root CMakeLists must APPEND to it.
+`firmware/components/esp_hid` overrides IDF 5.5's esp_hid (BLE HID could not restart without a reboot; fix marked
+"CardPass" in nimble_hidd.c). Re-check it when the IDF version changes.
 Disk: C: and D: are nearly full on this machine (PlatformIO + IDF is ~5 GB under ~/.platformio).
 
 ## Host build
