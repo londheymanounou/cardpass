@@ -109,6 +109,14 @@ The Cardputer ADV has no clock chip, so **set the time after every power-on** (T
 warnings need it). Menu -> Set time: by hand (your local time, using the time zone setting), or over
 Wi-Fi (scans networks, remembers up to 4; only available while the database is locked).
 
+To avoid typing a Wi-Fi password on the small keyboard, keep it in your database as the **password** of any entry
+(its title does not have to match the network name). On the Wi-Fi password screen press **down** ("from database"),
+pick the database and unlock it, then browse or search to the entry and press **Enter** on it. CardPass takes that
+one password, locks the database (everything is wiped) and only then turns Wi-Fi on. **`** cancels. Like a typed
+password, it is remembered only if it connected. After reflashing another firmware, saved networks are gone: do it again.
+
+Settings -> **Clock in bar** shows or hides the time in the status bar.
+
 ## Security in short
 
 - The database stays encrypted on the SD card; passwords are decrypted one at a time, only when shown

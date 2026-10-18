@@ -1,4 +1,5 @@
-/* Device settings (plan: stored in NVS or an SD file; never anything from the database). */
+/* Device settings (plan: stored in NVS or an SD file; nothing from the database, except a Wi-Fi
+ * password the user fetched from an entry while connecting, saved like a typed one: only after it connected). */
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
@@ -8,6 +9,7 @@
 typedef struct {
     int theme;             /* Bio-Resonant mode: 0 Dusk, 1 Deep night, 2 Daylight, 3 Sunrise (UI_THEME_*) */
     bool large_font, reveal_toggle, animations, splash;
+    bool bar_clock;        /* the time in the status bar (when it is set) */
     bool fn_arrows;        /* arrows need fn + ; , . / (old behaviour); default: those keys are arrows, fn types them */
     int autolock_s, brightness, typing_delay_ms, tz_minutes, weak_bits, expiry_days;
     int dim_s, off_s;      /* idle seconds until the backlight dims / the screen turns off (0 = never) */
@@ -23,6 +25,8 @@ typedef struct {
 /* Newest first; replaces a network with the same SSID, drops the oldest beyond CP_WIFI_MAX. */
 void cp_settings_wifi_save(cp_settings *s, const char *ssid, const char *pass);
 int cp_settings_wifi_find(const cp_settings *s, const char *ssid);   /* index or -1 */
+/* An SSID (1-32 bytes) and a WPA password: 8-63 printable ASCII characters, or 64 hex digits. */
+bool cp_wifi_valid(const char *ssid, const char *pass);
 
 /* Unix time of a civil UTC date/time (proleptic Gregorian). */
 int64_t cp_unix_from_civil(int y, int mo, int d, int h, int mi, int sec);

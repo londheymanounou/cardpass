@@ -1,6 +1,7 @@
 /* Settings <-> "key=value\n" text (stored in NVS or on the SD card; never secrets).
  * Unknown keys and bad values are ignored, so a missing, old or wiped store
  * just gives the defaults. */
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +31,9 @@ int64_t cp_build_time(void)
         if (!strncmp(d, M + 3 * i, 3)) mo = i + 1;
     day = (d[4] == ' ' ? 0 : d[4] - '0') * 10 + (d[5] - '0');
     int y = atoi(d + 7), h = atoi(t), mi = atoi(t + 3), s = atoi(t + 6);
-    return cp_unix_from_civil(y, mo, day, h, mi, s);
+    /* __DATE__/__TIME__ are the build PC's local time, not UTC (off by up to 14 h): a day of slack, or a sync soon
+     * after building east of UTC would be rejected as "the server's time looks wrong". */
+    return cp_unix_from_civil(y, mo, day, h, mi, s) - 86400;
 }
 
 static int hexval(int c) { return c >= '0' && c <= '9' ? c - '0' : (c | 32) >= 'a' && (c | 32) <= 'f' ? (c | 32) - 'a' + 10 : -1; }
@@ -61,6 +64,17 @@ int cp_settings_wifi_find(const cp_settings *s, const char *ssid)
     return -1;
 }
 
+bool cp_wifi_valid(const char *ssid, const char *pass)
+{
+    size_t ls = strlen(ssid), lp = strlen(pass);
+    if (ls < 1 || ls > 32 || lp < 8 || lp > 64) return false;
+    for (size_t i = 0; i < lp; i++) {
+        unsigned char c = (unsigned char)pass[i];
+        if (lp == 64 ? !isxdigit(c) : c < 0x20 || c > 0x7E) return false;
+    }
+    return true;
+}
+
 void cp_settings_wifi_save(cp_settings *s, const char *ssid, const char *pass)
 {
     int i = cp_settings_wifi_find(s, ssid);
@@ -77,6 +91,7 @@ void cp_settings_default(cp_settings *s)
 {
     memset(s, 0, sizeof *s);
     s->animations = true;
+    s->bar_clock = true;
     s->reveal_toggle = true;   /* press R to show, press again to hide (holding is hard to rely on) */
     s->splash = true;
     s->autolock_s = 300;
@@ -123,6 +138,7 @@ void cp_settings_parse(cp_settings *s, const char *text)
                 else if (!strcmp(k, "reveal")) s->reveal_toggle = !strcmp(v, "toggle");
                 else if (!strcmp(k, "anim")) s->animations = strcmp(v, "off") != 0;
                 else if (!strcmp(k, "arrows")) s->fn_arrows = !strcmp(v, "fn");
+                else if (!strcmp(k, "bar_clock")) s->bar_clock = strcmp(v, "off") != 0;
                 else if (!strcmp(k, "splash")) s->splash = strcmp(v, "off") != 0;
                 else if (!strcmp(k, "autolock")) num(v, 0, 86400, &s->autolock_s);
                 else if (!strcmp(k, "brightness")) num(v, 5, 100, &s->brightness);
@@ -155,10 +171,10 @@ void cp_settings_parse(cp_settings *s, const char *text)
 size_t cp_settings_format(const cp_settings *s, char *out, size_t n)
 {
     int w = snprintf(out, n,
-                     "theme=%s\nfont=%s\nreveal=%s\nanim=%s\nsplash=%s\narrows=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
+                     "theme=%s\nfont=%s\nreveal=%s\nanim=%s\nsplash=%s\narrows=%s\nbar_clock=%s\nautolock=%d\nbrightness=%d\ntyping_delay=%d\ntz=%d\n"
                      "weak_bits=%d\nexpiry_days=%d\ndim=%d\nscreen_off=%d\nlayout=%s\nautotype=%s\nlast_db=%s\n",
                      THEME_KEYS[s->theme & 3], s->large_font ? "large" : "small", s->reveal_toggle ? "toggle" : "hold",
-                     s->animations ? "on" : "off", s->splash ? "on" : "off", s->fn_arrows ? "fn" : "direct", s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
+                     s->animations ? "on" : "off", s->splash ? "on" : "off", s->fn_arrows ? "fn" : "direct", s->bar_clock ? "on" : "off", s->autolock_s, s->brightness, s->typing_delay_ms, s->tz_minutes, s->weak_bits, s->expiry_days,
                      s->dim_s, s->off_s, s->layout, s->autotype, s->last_db);
     if (w < 0 || (size_t)w >= n) return 0;
     for (int i = 0; i < s->nwifi; i++) {

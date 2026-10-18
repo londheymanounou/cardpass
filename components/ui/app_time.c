@@ -17,9 +17,11 @@ struct app_time {
     int pwlen;
     bool save, ok, retry;        /* save the network; result ok; offer to retype the password */
     char text[64];               /* busy / result line */
+    char note[64];               /* a small extra line on the password / result screens (Wi-Fi from a database) */
 };
 
 static const int WIDTH[6] = {4, 2, 2, 2, 2, 2};
+static void fetch_start(app *a);
 
 void ap_time_free(app *a)
 {
@@ -82,7 +84,7 @@ static void do_sync(app *a, const char *ssid, const char *pass, bool save)
 {
     struct app_time *t = a->tm;
     t->mode = TM_BUSY;
-    snprintf(t->text, sizeof t->text, "Connecting to %.32s\xE2\x80\xA6", ssid);
+    snprintf(t->text, sizeof t->text, "Connecting to %.32sâ¦", ssid);
     ap_mark_all(a);
     a->p->present(a->p->ctx);
     int64_t utc = 0;
@@ -102,6 +104,7 @@ static void do_sync(app *a, const char *ssid, const char *pass, bool save)
                                           "The server's time looks wrong"};
         snprintf(t->text, sizeof t->text, "%s", why[r > 0 && r <= NTP_ERR_BAD_TIME ? r : 1]);
     }
+    if (r == NTP_ERR_PASSWORD && save) snprintf(t->text, sizeof t->text, "Wrong password: not saved");
     t->mode = TM_RESULT;
     ap_wipe(t->pw, sizeof t->pw);
     t->pwlen = 0;
@@ -204,7 +207,9 @@ void ap_time_key(app *a, uint32_t k, bool fn)
         else if (k == '`' || k == K_ESC) t->mode = TM_MENU;
         break;
     case TM_PASSWORD:
+        t->note[0] = 0;
         if (k == K_ENTER) do_sync(a, t->ap[t->chosen].ssid, t->pw, t->save);
+        else if (k == K_DOWN) fetch_start(a);
         else if (k == K_ESC) { t->mode = TM_LIST; ap_wipe(t->pw, sizeof t->pw); t->pwlen = 0; }
         else if (k == K_TAB) t->save = !t->save;
         else if (k == K_BACKSPACE) ap_utf8_backspace(t->pw, &t->pwlen);
@@ -325,14 +330,64 @@ void ap_time_draw(app *a, ui_strip *s, const char **hint)
         ap_draw_field(a, s, PAD * 2, CONTENT_Y + 22, UI_W - PAD * 4, F->height + 6, t->pw, true, t->pwlen);
         ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 22 + F->height + 14, t->save ? "[x] remember this network (tab)" : "[ ] remember this network (tab)",
                 t->save ? T->accent : T->dim, UI_W - PAD * 4);
-        *hint = U_ENTER " connect  fn+` back";
+        if (t->note[0]) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 22 + F->height + 32, t->note, T->danger, UI_W - PAD * 4);
+        *hint = U_ENTER " connect  " U_DOWN " from database  fn+` back";
         break;
     }
     case TM_BUSY: ui_text(s, F, PAD * 2, CONTENT_Y + 30, t->text, T->fg, UI_W - PAD * 4); *hint = "please wait"; break;
     case TM_RESULT:
         if (t->ok) status(a, s);
         ui_text(s, F, PAD * 2, CONTENT_Y + (t->ok ? 50 : 24), t->text, t->ok ? T->ok : T->danger, UI_W - PAD * 4);
+        if (t->note[0]) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + (t->ok ? 72 : 46), t->note, T->dim, UI_W - PAD * 4);
         *hint = t->retry ? U_ENTER " retype password  any other key: back" : "any key";
         break;
     }
+}
+
+/* ---------------- Wi-Fi password from a database ----------------
+ * On the password screen, down = "from a database": pick and unlock a .kdbx as usual, then open ANY entry (its
+ * title need not match the network): ap_open_entry() hands over here instead of showing it. Its password is taken, the database is locked and wiped
+ * (app_lock), and only then does the radio come on (the scan already turned it off). Saved like a typed password:
+ * only if it connected and "remember" is ticked. */
+void ap_wifi_password(app *a, const app_ap *ap)
+{
+    ap_time_open(a, SCR_PICKER);
+    struct app_time *t = a->tm;
+    if (!t) return;
+    t->ap[0] = *ap;
+    t->nap = 1;
+    t->chosen = 0;
+    t->save = true;
+    t->mode = TM_PASSWORD;
+}
+
+static void fetch_start(app *a)
+{
+    struct app_time *t = a->tm;
+    a->wifi_fetch = t->ap[t->chosen];
+    a->wifi_fetch_save = t->save;
+    ap_time_free(a);                                     /* also wipes anything typed so far */
+    ap_rescan_files(a);
+    a->scr = SCR_PICKER;
+    a->sel = a->top = 0;
+    for (int i = 0; i < a->ndbs; i++) /* preselect the last database */
+        if (!strcmp(a->dbs[i], a->cfg.last_db)) a->sel = i;
+    a->msg[0] = 0;
+    ap_mark_all(a);
+}
+
+void ap_wifi_fetch_done(app *a, const kdbx_entry *e)
+{
+    app_ap ap = a->wifi_fetch;
+    bool save = a->wifi_fetch_save;
+    memset(&a->wifi_fetch, 0, sizeof a->wifi_fetch);
+    char *pw = malloc(REVEAL_MAX);
+    const kdbx_field *f = kdbx_field_get(e, "Password");
+    bool ok = pw && f && kdbx_reveal(a->db, f, pw, REVEAL_MAX) == KDBX_OK && cp_wifi_valid(ap.ssid, pw);
+    app_lock(a);                                         /* database closed and every buffer wiped before any radio */
+    ap_wifi_password(a, &ap);
+    if (a->tm && !ok) snprintf(a->tm->note, sizeof a->tm->note, "That entry has no Wi-Fi password (8-63)");
+    else if (a->tm) do_sync(a, ap.ssid, pw, save);
+    if (pw) { ap_wipe(pw, REVEAL_MAX); free(pw); }
+    ap_mark_all(a);
 }

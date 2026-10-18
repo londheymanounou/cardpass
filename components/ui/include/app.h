@@ -114,6 +114,10 @@ typedef struct {
     int pw_show_scr;
     char query_prev[64];       /* the query the current hits are for (typing narrows them) */
     char dbname[64], path[256];
+    /* Set time -> Wi-Fi -> "from a database": the network whose password the next unlock fetches (ssid "" = none).
+     * Only lives on the picker / unlock / key file screens; the unlock it triggers ends locked again (app_time.c). */
+    app_ap wifi_fetch;
+    bool wifi_fetch_save;
     char pw[128];
     int pwlen;
     char msg[64];

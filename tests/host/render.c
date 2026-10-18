@@ -101,6 +101,8 @@ static int backlight_state, backlight_calls, shutdowns, battery_level = 76;
 static void backlight_fn(void *c, int s) { (void)c; backlight_state = s; backlight_calls++; }
 static void shutdown_fn(void *c) { (void)c; shutdowns++; }
 static int scans, ntp_calls;
+static bool ntp_refuse;   /* the network refuses any password */
+static bool ntp_saw_db;   /* a database was open when the radio was asked to connect */
 static char ntp_ssid[40], ntp_pass[64];
 static int64_t ntp_time;
 static int wifi_scan_fn(void *c, app_ap *out, int max)
@@ -110,7 +112,8 @@ static int wifi_scan_fn(void *c, app_ap *out, int max)
     snprintf(out[0].ssid, 33, "HomeWiFi"); out[0].secure = true; out[0].rssi = -40;
     snprintf(out[1].ssid, 33, "Caf\xC3\xA9 Guest"); out[1].secure = false; out[1].rssi = -55;
     snprintf(out[2].ssid, 33, "Neighbour"); out[2].secure = true; out[2].rssi = -70;
-    return 3;
+    snprintf(out[3].ssid, 33, "Gmail"); out[3].secure = true; out[3].rssi = -75;   /* matches a test entry (W import) */
+    return 4;
 }
 static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
 {
@@ -118,7 +121,8 @@ static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
     ntp_calls++;
     snprintf(ntp_ssid, sizeof ntp_ssid, "%s", ssid);
     snprintf(ntp_pass, sizeof ntp_pass, "%s", pass);
-    if (!strcmp(pass, "wrong")) return NTP_ERR_PASSWORD;
+    ntp_saw_db = A.db != NULL;
+    if (ntp_refuse || !strcmp(pass, "wrong")) return NTP_ERR_PASSWORD;
     *t = ntp_time;
     return NTP_OK;
 }
@@ -433,6 +437,16 @@ int main(int argc, char **argv)
     key('`');
     CHECK(strstr(saved_settings, "theme=daylight") && strstr(saved_settings, "layout=UK QWERTY"), "settings saved: %s", saved_settings);
     snap("25_home_light");
+    for (int on = 0; on < 2; on++) {   /* Settings -> Clock in bar (the last row): off, then back on */
+        key(K_TAB);
+        keys(K_DOWN, 4);
+        key(K_ENTER);
+        key(K_UP);
+        key(K_RIGHT);
+        key('`');
+        CHECK(A.cfg.bar_clock == (on == 1) && strstr(saved_settings, on ? "bar_clock=on" : "bar_clock=off"), "clock in bar %d", on);
+        if (!on) snap("25b_home_no_clock");
+    }
     key(K_TAB);
     keys(K_DOWN, 4);
     key(K_ENTER);
@@ -864,12 +878,13 @@ int main(int argc, char **argv)
         key(K_ENTER);
         CHECK(strstr(A.msg, "valid"), "month 13 is refused: %s", A.msg);
         snap("53_time_invalid");
-        key(K_LEFT);            /* typing 13 moved on to the day */
+        keys(K_LEFT, 2);        /* typing 13 moved on to the day: back to the year */
+        type("2098");           /* any later year: a date of "today" fails once the test binary was built later today */
         type("10");             /* month, moves on to the day */
         type("15");             /* day, moves on to the hour */
         snap("54_time_manual");
         key(K_ENTER);
-        int64_t want = cp_unix_from_civil(2026, 10, 15, 9, 30, 0) - 120 * 60;
+        int64_t want = cp_unix_from_civil(2098, 10, 15, 9, 30, 0) - 120 * 60;
         CHECK(time_valid && now_s == want && A.time_src == 1, "manual time set: %lld want %lld", (long long)now_s, (long long)want);
         snap("55_time_set");
 
@@ -902,8 +917,9 @@ int main(int argc, char **argv)
         snap("59_wifi_wrong_password");
         key(K_ENTER);           /* retype */
         CHECK(!strstr(A.msg, "x") && ntp_calls == 3, "wrong password reported");
+        CHECK(cp_settings_wifi_find(&A.cfg, "Neighbour") < 0 && A.cfg.nwifi == 1, "wrong Wi-Fi password not saved");
         key(K_ESC);
-        key(K_DOWN);            /* open network, server time is nonsense */
+        keys(K_DOWN, 2);        /* past "Gmail", wraps to the saved HomeWiFi; the server time is nonsense */
         ntp_time = 1000;
         key(K_ENTER);
         CHECK(ntp_calls == 4 && now_s != 1000, "bad server time not applied");
@@ -937,6 +953,113 @@ int main(int argc, char **argv)
         CHECK(A.scr == SCR_ENTRY, "and returns to the entry");
         time_valid = true;
         now_s = 1790000000;
+
+        /* Wi-Fi password from a database: any entry of the database; the database is locked and wiped before
+         * the radio comes on; saved like a typed password, only once it connected */
+        char gm_pw[64] = "", gm_hex[130] = "";
+        kdbx_reveal(A.db, kdbx_field_get(A.entry, "Password"), gm_pw, sizeof gm_pw);   /* Gmail (earlier steps edited it) */
+        for (int i = 0; gm_pw[i]; i++) snprintf(gm_hex + 2 * i, 3, "%02x", (unsigned char)gm_pw[i]);
+        CHECK(strlen(gm_pw) >= 8, "Gmail has a Wi-Fi shaped password");
+        ntp_time = cp_build_time() + 86400 * 30;
+        for (int round = 0; round < 2; round++) {
+            app_lock(&A);
+            key(K_TAB);
+            keys(K_DOWN, 3);
+            key(K_ENTER);           /* Set time */
+            key(K_DOWN);
+            key(K_ENTER);           /* Wi-Fi: scan */
+            keys(K_DOWN, 3);
+            key(K_ENTER);           /* "Gmail": unknown, so the password screen */
+            CHECK(A.scr == SCR_TIME && A.tm, "password screen");
+            if (!round) snap("63_wifi_password");
+            key(K_DOWN);            /* from a database */
+            CHECK(A.scr == SCR_PICKER && !A.tm && !strcmp(A.wifi_fetch.ssid, "Gmail"), "from a database: the picker");
+            if (!round) snap("64_wifi_pick_db");
+            int i = 0;
+            while (i < A.ndbs && strcmp(A.dbs[i], "aes_kpxc.kdbx")) i++;
+            keys(K_UP, A.sel);
+            keys(K_DOWN, i);
+            key(K_ENTER);
+            type("test");
+            if (!round) snap("65_wifi_unlock");
+            ntp_refuse = !round;
+            int calls = ntp_calls;
+            key(K_ENTER);
+            CHECK(A.db && A.scr == SCR_HOME && A.wifi_fetch.ssid[0] && ntp_calls == calls, "unlocked: browse to pick the entry");
+            if (!round) snap("65b_wifi_pick_entry");
+            type("Gmail");
+            key(K_ENTER);           /* the entry is picked, not opened */
+            CHECK(ntp_calls == calls + 1 && !strcmp(ntp_ssid, "Gmail") && !strcmp(ntp_pass, gm_pw) && !ntp_saw_db,
+                  "the entry's password used, with the database already closed");
+            CHECK(!A.db && !A.wifi_fetch.ssid[0] && A.scr == SCR_TIME, "locked, back on the time screen");
+            if (!round) {
+                snap("66_wifi_from_db_refused");
+                CHECK(!strstr(saved_settings, gm_hex) && cp_settings_wifi_find(&A.cfg, "Gmail") < 0, "refused: never saved");
+            } else {
+                CHECK(strstr(saved_settings, gm_hex) && cp_settings_wifi_find(&A.cfg, "Gmail") >= 0, "connected: saved");
+            }
+            key(' ');
+            key(96);
+        }
+        ntp_refuse = false;
+
+        /* no entry named like the network; giving up on the picker; leaving through the menu */
+        key(K_TAB);
+        keys(K_DOWN, 3);
+        key(K_ENTER);
+        key(K_DOWN);
+        key(K_ENTER);
+        keys(K_DOWN, 2);
+        key(K_ENTER);               /* "Neighbour" */
+        key(K_DOWN);
+        key(K_ESC);
+        CHECK(A.scr == SCR_TIME && A.tm && !A.wifi_fetch.ssid[0], "back from the picker: the password screen again");
+        key(K_DOWN);
+        key(K_TAB);                 /* menu */
+        key(K_ESC);
+        CHECK(!A.wifi_fetch.ssid[0], "left through the menu: the next unlock is a normal one");
+        key(K_ENTER);               /* picker -> unlock: a normal unlock now */
+        type("test");
+        key(K_ENTER);
+        CHECK(A.db && A.scr == SCR_HOME, "normal unlock after an abandoned fetch");
+        app_lock(&A);
+        key(K_TAB);
+        keys(K_DOWN, 3);
+        key(K_ENTER);
+        key(K_DOWN);
+        key(K_ENTER);
+        keys(K_DOWN, 2);
+        key(K_ENTER);               /* "Neighbour" again */
+        key(K_DOWN);
+        /* any entry works, whatever its title: "Gmail"'s password for the network "Neighbour"; ` gives up */
+        for (int r2 = 0; r2 < 2; r2++) {
+            int i = 0;
+            while (i < A.ndbs && strcmp(A.dbs[i], "aes_kpxc.kdbx")) i++;
+            keys(K_UP, A.sel);
+            keys(K_DOWN, i);
+            key(K_ENTER);
+            type("test");
+            int calls = ntp_calls;
+            key(K_ENTER);
+            CHECK(A.db && A.scr == SCR_HOME && ntp_calls == calls, "unlocked: browse to pick the entry");
+            if (!r2) {
+                key(K_ESC);
+                CHECK(!A.db && A.scr == SCR_TIME && A.tm && !A.wifi_fetch.ssid[0] && ntp_calls == calls, "cancelled: locked, password screen");
+                key(K_DOWN);
+                continue;
+            }
+            type("Gmail");
+            key(K_ENTER);
+            CHECK(ntp_calls == calls + 1 && !strcmp(ntp_ssid, "Neighbour") && !strcmp(ntp_pass, gm_pw) && !ntp_saw_db && !A.db &&
+                      A.scr == SCR_TIME && A.msg[0] == 0,
+                  "title differs from the network: its password is used anyway");
+        }
+        snap("67_wifi_other_title");
+        CHECK(A.scr == SCR_TIME && A.tm, "the result screen");
+        key(K_ESC);                 /* password -> network list */
+        key(96);                    /* -> time menu */
+        key(96);                    /* -> picker */
+        CHECK(A.scr == SCR_PICKER, "back to the picker");
     }
 
     /* USB drive mode: locks first, a file copied on the PC shows up afterwards */

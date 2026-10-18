@@ -13,6 +13,7 @@
 #define CONTENT_H (UI_H - BAR_H - FOOT_H)
 #define TOAST_H 19          /* toast: a Plex 12 line + its ring */
 #define PAD 4
+#define BAR_GAP 6           /* between status bar items */
 #define LABEL_W 62
 #define ROW_X0 (PAD + 6)        /* row content inside the selection capsule */
 #define ROW_X1 (UI_W - PAD - 7)
@@ -24,6 +25,7 @@
 /* utf8 literals used in hints */
 #define U_ENTER "\xE2\x86\xB5"
 #define U_UPDOWN "\xE2\x86\x91\xE2\x86\x93"
+#define U_DOWN "\xE2\x86\x93"
 #define U_LR "\xE2\x86\x90\xE2\x86\x92"
 #define U_BULLETS "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"
 
@@ -56,7 +58,7 @@ void ap_utf8_backspace(char *buf, int *len);
 bool ap_printable(uint32_t k);
 
 /* drawing */
-void ap_draw_bar(app *a, ui_strip *s, const char *title);
+int ap_draw_bar(app *a, ui_strip *s, const char *title);   /* -> x where the status items start */
 void ap_draw_footer(app *a, ui_strip *s, const char *hint);
 void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, const char *text, const char *right,
                  uint16_t right_c);
@@ -105,6 +107,8 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint);
 void ap_create_free(app *a);
 void ap_help_draw(app *a, ui_strip *s, const char **hint);
 void ap_time_open(app *a, int back);
+void ap_wifi_password(app *a, const app_ap *ap);   /* Set time: the password screen for ap */
+void ap_wifi_fetch_done(app *a, const kdbx_entry *e);   /* the user picked e for a->wifi_fetch: take its password, lock, connect */
 void ap_time_key(app *a, uint32_t k, bool fn);
 void ap_time_draw(app *a, ui_strip *s, const char **hint);
 void ap_time_free(app *a);

@@ -16,6 +16,7 @@ int main(void)
 
     s.theme = 3;
     s.large_font = s.reveal_toggle = s.fn_arrows = true;
+    s.bar_clock = false;
     s.autolock_s = 60;
     s.tz_minutes = -300;
     strcpy(s.layout, "FR AZERTY");
@@ -58,6 +59,19 @@ int main(void)
     CHECK(!strcmp(t.wifi_pass[0], "pass:word\n=1"), "wifi password with separators");
     cp_settings_parse(&t, "wifi=zz:00\nwifi=414:41\nwifi=41\n");
     CHECK(t.nwifi == 0, "bad wifi lines ignored");
+
+    /* Wi-Fi password taken from a database entry: WPA shape check */
+    CHECK(cp_wifi_valid("Home", "12345678") && cp_wifi_valid("Home", "a b~c d!") && cp_wifi_valid("12345678901234567890123456789012", "12345678"),
+          "valid Wi-Fi");
+    char p63[64], h64[65], x64[65];
+    memset(p63, 'p', 63), p63[63] = 0;
+    memset(h64, 'a', 64), h64[64] = 0;
+    memset(x64, 'x', 64), x64[64] = 0;
+    CHECK(cp_wifi_valid("Home", p63) && cp_wifi_valid("Home", h64), "63 chars, 64 hex");
+    CHECK(!cp_wifi_valid("Home", "1234567") && !cp_wifi_valid("Home", x64) && !cp_wifi_valid("", "12345678") &&
+          !cp_wifi_valid("123456789012345678901234567890123", "12345678") && !cp_wifi_valid("Home", "p\xC3\xA4sswort") &&
+          !cp_wifi_valid("Home", "1234\n5678"), "invalid Wi-Fi refused");
+
 
     cp_settings_parse(&t, "dim=0\nscreen_off=30\n");
     CHECK(t.dim_s == 0 && t.off_s == 30, "dim/off parsed");

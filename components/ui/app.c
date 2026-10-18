@@ -212,6 +212,7 @@ static const kdbx_field *totp_field(const kdbx_entry *e)
 
 void ap_open_entry(app *a, const kdbx_entry *e)
 {
+    if (a->wifi_fetch.ssid[0]) { ap_wifi_fetch_done(a, e); return; }   /* browsing only to pick the Wi-Fi password's entry */
     if (a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH || a->scr == SCR_AUDIT || a->scr == SCR_EXPIRY)
         a->back_scr = a->scr;
     a->entry = e;
@@ -543,6 +544,16 @@ void app_key(app *a, uint32_t key, bool down)
         set_power(a, 0);
         if (was_off) return;
     }
+    if (a->wifi_fetch.ssid[0] && a->scr != SCR_PICKER && a->scr != SCR_UNLOCK && a->scr != SCR_BROWSE && a->scr != SCR_HOME &&
+        a->scr != SCR_GROUP && a->scr != SCR_SEARCH)
+        memset(&a->wifi_fetch, 0, sizeof a->wifi_fetch);   /* left the fetch (menu, drive, ...): the next unlock is a normal one */
+    if (a->wifi_fetch.ssid[0] && a->scr == SCR_HOME && a->db && down && (k == K_ESC || k == '`')) {   /* give up: lock, back to the password */
+        app_ap ap = a->wifi_fetch;
+        memset(&a->wifi_fetch, 0, sizeof a->wifi_fetch);
+        app_lock(a);
+        ap_wifi_password(a, &ap);
+        return;
+    }
 
     if (a->scr == SCR_ENTRY && (k == 'r' || k == 'R') && !fn) {
         bool r = !a->cfg.reveal_toggle ? down : (down ? !a->revealed : a->revealed);
@@ -577,6 +588,12 @@ void app_key(app *a, uint32_t key, bool down)
 
     switch (a->scr) {
     case SCR_PICKER:
+        if (a->wifi_fetch.ssid[0] && (k == K_ESC || k == '`')) {   /* give up on the database: back to the password */
+            app_ap ap = a->wifi_fetch;
+            memset(&a->wifi_fetch, 0, sizeof a->wifi_fetch);
+            ap_wifi_password(a, &ap);
+            break;
+        }
         if (k == K_UP) ap_move_sel(a, a->ndbs, -1);
         else if (k == K_DOWN) ap_move_sel(a, a->ndbs, 1);
         else if (k == K_ENTER && a->ndbs) {
@@ -716,28 +733,46 @@ bool app_dirty(app *a, int *y0, int *y1)
 
 /* ======================= drawing ======================= */
 
-void ap_draw_bar(app *a, ui_strip *s, const char *title)
+/* Right-aligned status item ending at x; returns its left edge minus the gap to the next item. */
+static int bar_item(ui_strip *s, int x, const char *t, uint16_t c)
 {
-    ui_fill(s, 0, 0, UI_W, BAR_H, T->bar_bg);
-    char right[48] = "";
-    if (a->bt_on) snprintf(right, sizeof right, "%s ", ICON_BLUETOOTH);
-    bool valid;
-    int64_t now = a->p->now(a->p->ctx, &valid);
-    if (valid) {
-        int y, mo, d, h, mi;
-        ap_civil(now + a->cfg.tz_minutes * 60, &y, &mo, &d, &h, &mi);
-        snprintf(right + strlen(right), sizeof right - strlen(right), "%02d:%02d ", h, mi);
-    }
+    int w = ui_text_width(&ui_font_small, t);
+    ui_text(s, &ui_font_small, x - w, 0, t, c, w);
+    return x - w - BAR_GAP;
+}
+
+/* Bio-Resonant status bar: raised surface, full-width subtle hairline, secondary-ink caption items, right to left:
+ * lock state, battery (a capsule meter that fills with the charge), clock, Bluetooth. Colour only to signal. */
+int ap_draw_bar(app *a, ui_strip *s, const char *title)
+{
+    ui_fill(s, 0, 0, UI_W, BAR_H - 2, T->raised);
+    ui_fill(s, 0, BAR_H - 2, UI_W, UI_STROKE, T->faint);
+    ui_fill(s, 0, BAR_H - 1, UI_W, 1, T->bg);                           /* air between the hairline and a selected row */
+    int x = bar_item(s, UI_W - PAD, a->db ? ICON_UNLOCK : ICON_LOCK, a->db ? T->accent : T->dim);
     int bat = a->p->battery(a->p->ctx);
     if (bat >= 0) {
-        size_t l = strlen(right);
-        snprintf(right + l, sizeof right - l, "%s%d%% ", bat > 60 ? ICON_BATTERY_FULL : bat > 20 ? ICON_BATTERY_HALF : ICON_BATTERY_EMPTY, bat);
+        uint16_t c = bat <= 10 ? T->danger : bat <= 20 ? T->warn : T->dim;
+        x -= 2;                                                          /* the nub */
+        ui_fill(s, x, 7, 2, 4, c);
+        x -= 15;
+        ui_round_ring(s, x, 5, 15, 8, 3, UI_STROKE, c, T->raised);
+        ui_round(s, x + 2, 7, (11 * bat + 99) / 100, 4, 1, c);            /* any charge shows at least 1 px */
+        char t[16];   /* room for any int: IDF builds with -Werror=format-truncation */
+        snprintf(t, sizeof t, "%d%%", bat);
+        x = bar_item(s, x - 3, t, c);
     }
-    strcat(right, a->db ? ICON_UNLOCK : ICON_LOCK);
-    int rw = ui_text_width(&ui_font_small, right);
-    ui_text(s, &ui_font_small, UI_W - PAD - rw, 0, right, bat >= 0 && bat <= 10 ? T->danger : T->dim, rw);
-    ui_text(s, &ui_font_title, PAD, 0, title, T->bar_fg, UI_W - 3 * PAD - rw);
-    ui_fill(s, PAD, BAR_H - 2, UI_W - 2 * PAD, UI_STROKE, T->rule);
+    bool valid;
+    int64_t now = a->p->now(a->p->ctx, &valid);
+    if (valid && a->cfg.bar_clock) {
+        int y, mo, d, h, mi;
+        char t[16];   /* room for any int: IDF builds with -Werror=format-truncation */
+        ap_civil(now + a->cfg.tz_minutes * 60, &y, &mo, &d, &h, &mi);
+        snprintf(t, sizeof t, "%02d:%02d", h, mi);
+        x = bar_item(s, x, t, T->dim);
+    }
+    if (a->bt_on) x = bar_item(s, x, ICON_BLUETOOTH, T->accent);
+    ui_text(s, &ui_font_title, PAD, 0, title, T->bar_fg, x - PAD);
+    return x;
 }
 
 void ap_draw_footer(app *a, ui_strip *s, const char *hint)
@@ -1035,8 +1070,18 @@ void app_draw(app *a, ui_strip *s)
     if (a->scr == SCR_QR) { draw_qr(a, s); return; }
     if (a->scr == SCR_SPLASH) { ap_splash_draw(a, s); return; }
     switch (a->scr) {
-    case SCR_PICKER: snprintf(title, sizeof title, "CardPass"); break;
-    case SCR_UNLOCK: snprintf(title, sizeof title, "Unlock %s", a->dbname); break;
+    case SCR_PICKER:
+        if (a->wifi_fetch.ssid[0]) snprintf(title, sizeof title, "%s %.32s", ICON_WIFI, a->wifi_fetch.ssid);
+        else snprintf(title, sizeof title, "CardPass");
+        break;
+    case SCR_UNLOCK:
+        if (a->wifi_fetch.ssid[0]) snprintf(title, sizeof title, "%s %.32s", ICON_WIFI, a->wifi_fetch.ssid);
+        else snprintf(title, sizeof title, "Unlock %s", a->dbname);
+        break;
+    case SCR_HOME:
+        if (a->wifi_fetch.ssid[0]) { snprintf(title, sizeof title, "%s %.32s", ICON_WIFI, a->wifi_fetch.ssid); break; }
+        snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
+        break;
     case SCR_GROUP: snprintf(title, sizeof title, "%s %s", ICON_FOLDER_OPEN, a->group->name); break;
     case SCR_ENTRY: snprintf(title, sizeof title, "%s %s", ICON_KEY, a->entry->title); break;
     case SCR_MENU: snprintf(title, sizeof title, "Menu"); break;
@@ -1057,7 +1102,7 @@ void app_draw(app *a, ui_strip *s)
     case SCR_VIEW: snprintf(title, sizeof title, "%s %.40s", ICON_FILE, ap_view_name(a)); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
     }
-    if (s->y0 < BAR_H) ap_draw_bar(a, s, title);
+    int bar_x = s->y0 < BAR_H ? ap_draw_bar(a, s, title) : 0;
 
     char *buf = malloc(REVEAL_MAX);
     if (!buf) return;
@@ -1068,7 +1113,7 @@ void app_draw(app *a, ui_strip *s)
             ap_draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
         if (!a->ndbs) ui_text(s, F, PAD * 2, CONTENT_Y + 8, "No .kdbx files on the SD card", T->dim, UI_W);
         if (a->msg[0]) ui_text(s, &ui_font_small, PAD * 2, UI_H - FOOT_H - 17, a->msg, T->warn, UI_W);
-        hint = U_UPDOWN " choose  " U_ENTER " open  tab menu";
+        hint = a->wifi_fetch.ssid[0] ? U_UPDOWN " choose  " U_ENTER " open  ` cancel" : U_UPDOWN " choose  " U_ENTER " open  tab menu";
         break;
     case SCR_UNLOCK:
         draw_unlock(a, s);
@@ -1077,14 +1122,14 @@ void app_draw(app *a, ui_strip *s)
     case SCR_HOME:
     case SCR_GROUP:
         ap_draw_list(a, s);
-        hint = "type to search  " U_ENTER " open  tab menu";
+        hint = a->wifi_fetch.ssid[0] ? U_UPDOWN " pick the entry  " U_ENTER " use  ` cancel" : "type to search  " U_ENTER " open  tab menu";
         break;
     case SCR_SEARCH: {
         ap_draw_list(a, s);
         snprintf(title, sizeof title, "%s %s", ICON_SEARCH, a->query);
         if (s->y0 < BAR_H) { /* query replaces the title */
-            ui_fill(s, 0, 0, UI_W / 2 + 40, BAR_H, T->bar_bg);
-            int w = ui_text(s, &ui_font_small, PAD, 1, title, T->accent, UI_W / 2 + 30);
+            ui_fill(s, 0, 0, bar_x, BAR_H - 2, T->raised);
+            int w = ui_text(s, &ui_font_small, PAD, 1, title, T->accent, bar_x - PAD - 2);
             ui_fill(s, PAD + w + 1, 2, 1, 10, T->accent);
         }
         hint = U_UPDOWN " choose  " U_ENTER " open  fn+` clear";

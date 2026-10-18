@@ -147,7 +147,7 @@ Each stage has acceptance tests. Don't start the next until they pass.
 - **Manual set screen:** date + time entry from the keyboard, with a live preview and a seconds field (TOTP needs accuracy within a few seconds).
 - **Internet sync (NTP):**
   - Only available while the database is LOCKED. Wi-Fi turns on, syncs via ESP-IDF SNTP (several servers, e.g. pool.ntp.org + time.cloudflare.com), then turns Wi-Fi fully off.
-  - Wi-Fi network picker (scan + password entry). Saved networks stored in NVS (not secret-critical, but never store anything from the database there). Option to not save a network.
+  - Wi-Fi network picker (scan + password entry). Saved networks stored in NVS (not secret-critical, but never store anything from the database there, except a Wi-Fi password the user fetches from the entry named like the network, on the Wi-Fi password screen: the database is opened, that one password taken, the database locked and wiped, and only then does Wi-Fi start; it is saved like a typed password, only after it connected). Option to not save a network.
   - Timeout (~10 s) with clear success/failure message. Sanity check: reject any time earlier than the firmware build date.
 - **Optional Grove RTC:** if a supported RTC module is detected on I2C at boot, read time from it, and write to it after every manual set or NTP sync.
 - **Time validity:** track whether time was set since the last power-on (or comes from the RTC). If not, TOTP screen shows "Time not set" with shortcuts to manual set / NTP instead of showing wrong codes.
