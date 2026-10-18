@@ -173,6 +173,12 @@ void hw_ble_answer(bool accept) { (void)accept; }
 void hw_ble_forget(void) {}
 bool hw_ble_ready(void) { return false; }
 void hw_ble_stroke(uint8_t key, uint8_t mods) { (void)key; (void)mods; }
+int hw_vc_mount(const char *path, const uint8_t *pw, size_t pwlen, bool allow_outer_write, void (*progress)(void *, int), void *arg)
+{
+    (void)path; (void)pw; (void)pwlen; (void)allow_outer_write; (void)progress; (void)arg;
+    return 2;
+}
+void hw_vc_unmount(void) {}
 int hw_wifi_scan(app_ap *out, int max) { (void)out; (void)max; return 0; }
 int hw_ntp_sync(const char *ssid, const char *pass, int64_t *unix_s) { (void)ssid; (void)pass; (void)unix_s; return NTP_ERR_CONNECT; }
 #endif

@@ -143,6 +143,9 @@ void ap_bt_key(app *a, uint32_t k, bool fn);
 void ap_bt_tick(app *a, uint32_t now);
 void ap_bt_draw(app *a, ui_strip *s, const char **hint);
 void ap_browse_open(app *a);
+void ap_browse_open_db(app *a, bool keep_dir);   /* choose a database / container anywhere on the card */
+void ap_vc_unlock(app *a);                       /* a->pw is the container password */
+void ap_vc_close(app *a);                        /* unmount the container, forget the pending choice */
 void ap_browse_free(app *a);
 void ap_browse_key(app *a, uint32_t k, bool fn);
 void ap_browse_draw(app *a, ui_strip *s, const char **hint);

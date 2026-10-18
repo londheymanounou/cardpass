@@ -39,7 +39,8 @@ Work one stage per session; update `PROGRESS.md` at the end.
 
 - `components/` — portable C, no ESP-IDF deps (mbedTLS + tinfl): `kdbx` (read, save, create;
   `yxml/` vendored), `totp`, `gen` (+ EFF wordlist), `search`, `typing` (layouts, auto-type),
-  `strength`. Platform supplies `cp_random()`.
+  `strength`, `vera` (VeraCrypt AES-XTS/PBKDF2-SHA512 container, sectors only; firmware mounts it as a FAT drive in
+  `hw_vc.c`). Platform supplies `cp_random()`.
 - `tests/host/` — CMake host build, one test per component; `asan.sh` (ASan/LSan/UBSan, Linux/WSL).
 - `tools/` — `make_test_dbs.py`, `ref_dump.py` (reference values), `check_saved.py` (saved files
   vs pykeepass + keepassxc-cli), `gen_wordlist.py`.

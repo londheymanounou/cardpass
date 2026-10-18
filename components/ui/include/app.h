@@ -24,6 +24,7 @@ typedef struct { char ssid[33]; bool secure; int8_t rssi; } app_ap;
 enum { BT_OFF = 0, BT_ADVERTISING, BT_PAIR_CONFIRM, BT_CONNECTED };
 enum { NTP_OK = 0, NTP_ERR_CONNECT = 1, NTP_ERR_PASSWORD = 2, NTP_ERR_SERVER = 3, NTP_ERR_BAD_TIME = 4 };
 
+#define VC_ROOT "@vc"   /* browser folder of the mounted VeraCrypt container */
 typedef struct { char name[64]; bool dir; uint32_t size; } app_dirent;   /* one entry of the file browser */
 
 typedef struct {
@@ -64,6 +65,15 @@ typedef struct {
     int (*list_dir)(void *ctx, const char *rel, app_dirent *out, int max);   /* entries (no . .. or hidden), count */
     void (*root_path)(void *ctx, const char *rel, char *out, size_t n);      /* full path of a root-relative path */
     void (*start_dir)(void *ctx, char *out, size_t n);                       /* where the browser starts (the database folder) */
+    /* VeraCrypt container (AES-XTS + SHA-512): open the file at the SD-root-relative path `rel` and mount the FAT
+     * inside it; its files then show up in the browser (and in list_dir/root_path) under the folder VC_ROOT.
+     * 0 = ok, 5 = ok but read-only, 1 = wrong password / not a container, 2 = unreadable, 3 = unsupported variant,
+     * 4 = no FAT inside. A standard (outer) volume is mounted read-only unless allow_outer_write: it might hide a hidden
+     * volume, and any write to it can destroy that (deniability: the container can't say). A hidden volume is always
+     * writable. progress(arg, 0..100) during each slow key derivation. */
+    int (*vc_mount)(void *ctx, const char *rel, const uint8_t *pw, size_t pwlen, bool allow_outer_write,
+                    void (*progress)(void *, int), void *arg);
+    void (*vc_unmount)(void *ctx);                                           /* close it and wipe its keys */
     void *ctx;
 } app_platform;
 
@@ -107,7 +117,13 @@ typedef struct {
     char dbs[APP_MAX_DBS][64];
     int ndbs;
     char keyrel[160];          /* chosen key file, relative to the SD root ("" = none) */
-    char br_dir[160];          /* file browser: current folder (relative to the SD root) */
+    char br_dir[160];          /* file browser: current folder (relative to the SD root, or VC_ROOT/... inside a container) */
+    int br_mode;               /* 0 = choosing a key file, 1 = choosing a database or container */
+    bool vc_pending;           /* the unlock screen asks for a VeraCrypt container's password */
+    bool vc_open;              /* a container is mounted */
+    bool vc_write;             /* the container password screen: allow writing to a standard volume (Tab) */
+    bool from_browse;          /* the unlock screen was reached from the browser (back returns there) */
+    char vc_rel[160];          /* the container chosen, relative to the SD root */
     app_dirent *br_ents;       /* its entries, malloc'd while the browser is open */
     int br_n;
     bool pw_show;              /* the eye: show typed passwords; reset whenever the screen changes */

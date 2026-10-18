@@ -6,7 +6,8 @@ no cloud, and Wi-Fi is only used to set the clock while no database is open.
 
 ## Getting started
 
-1. Put your database on the SD card, in a folder named `cardpass` (files in the card's root are found too).
+1. Put your database on the SD card. The picker lists the `cardpass` folder and the card's root; for anywhere else
+   choose **Browse SD card** (the last row) and walk to it (see "Databases anywhere, and VeraCrypt" below).
    Databases must be **KDBX 4** (KeePassXC and KeePass 2 default). Both key derivations work:
    - **AES-KDF**: fast on the Cardputer (it has AES hardware).
    - **Argon2d / Argon2id** (the KeePassXC default): works, but Argon2 is *designed* to need a lot of memory and
@@ -117,6 +118,26 @@ password, it is remembered only if it connected. After reflashing another firmwa
 
 Settings -> **Clock in bar** shows or hides the time in the status bar.
 
+## Databases anywhere, and VeraCrypt
+
+**Browse SD card** (last row of the picker) opens a file browser on the whole card: folders first, `..` or Left goes
+up, Enter opens a folder. Enter on a `.kdbx` goes to the unlock screen (fn+` or Esc there returns to the same folder).
+
+**VeraCrypt containers**: Enter on any file that is *not* `.kdbx` is taken to be a VeraCrypt container and asks
+for its password. Once it opens, its files are browsed the same way (title "Container"), and a `.kdbx` inside opens
+and **saves** like any other. Locking, auto-lock, or leaving the container with `..` / Esc closes it and wipes its keys.
+The container file only ever holds ciphertext on the card. Supported: a normal file container with **AES** and
+**SHA-512** (VeraCrypt's default), **FAT or FAT32** inside (not exFAT or NTFS), password only (no keyfiles, no PIM).
+Anything else says why. The key derivation (500,000 SHA-512 rounds, about 18 s) takes a while: the progress screen
+shows the time left. Don't remove the card or power off while saving inside a container.
+
+**Hidden volumes**: type the hidden volume's password and it opens instead (CardPass tries the normal volume first,
+then the hidden one, so a wrong password takes about twice as long). A container can't say whether it hides
+something, and writing to the *outer* volume can overwrite a hidden volume's data. So a standard volume opens
+**read-only**; press **Tab** on the password screen to allow saving there (only if it holds no hidden volume). A
+hidden volume is always writable. For plausible deniability use an ordinary file name, not `.hc`.
+CardPass does not remember the name of a database opened inside a container (the settings file is plain text).
+
 ## Security in short
 
 - The database stays encrypted on the SD card; passwords are decrypted one at a time, only when shown
@@ -130,7 +151,7 @@ Settings -> **Clock in bar** shows or hides the time in the status bar.
 
 ## Limits
 
-KDBX 4 only. Argon2 needs free space on the SD card (as much as its memory setting, e.g. 64 MB) and time.
+KDBX 4 only. VeraCrypt: AES + SHA-512 + FAT only, no keyfiles/PIM. Argon2 needs free space on the SD card (as much as its memory setting, e.g. 64 MB) and time.
 Attachments and custom icons are kept untouched but not
 displayed (text attachments can be read). No database merging. Very large databases are limited by the
 Cardputer's RAM (roughly 800-1,000 entries; `docs/first-hardware.md` explains how to measure yours).

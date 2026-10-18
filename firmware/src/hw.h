@@ -39,6 +39,10 @@ bool hw_sd_ok(void);
 sdmmc_card_t *hw_sd_raw_open(void);
 void hw_sd_raw_close(void);
 #define HW_SD_ROOT "/sd"
+/* VeraCrypt container (hw_vc.c): mounted as a FAT drive at HW_VC_MOUNT while open. 0 = ok, else the app.h vc_mount codes. */
+#define HW_VC_MOUNT "/vc"
+int hw_vc_mount(const char *path, const uint8_t *pw, size_t pwlen, bool allow_outer_write, void (*progress)(void *, int), void *arg);
+void hw_vc_unmount(void);
 #define HW_DB_DIR "/sd/cardpass"
 
 /* USB device: HID keyboard + FIDO HID */

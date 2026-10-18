@@ -75,11 +75,19 @@ static int bt_state_fn(void *ctx, uint32_t *code) { return hw_ble_state(code); }
 static void bt_answer_fn(void *ctx, bool ok) { hw_ble_answer(ok); }
 static void bt_forget_fn(void *ctx) { hw_ble_forget(); }
 
+/* "rel" is relative to the SD root, except VC_ROOT[/...]: that is the mounted VeraCrypt container */
+static void real_path(const char *rel, char *out, size_t n)
+{
+    size_t l = strlen(VC_ROOT);
+    if (!strncmp(rel, VC_ROOT, l) && (!rel[l] || rel[l] == '/')) snprintf(out, n, HW_VC_MOUNT "%s", rel + l);
+    else snprintf(out, n, rel[0] ? HW_SD_ROOT "/%s" : HW_SD_ROOT "%.0s", rel);
+}
+
 /* file browser: folders relative to the SD root, no hidden entries */
 static int list_dir(void *ctx, const char *rel, app_dirent *out, int max)
 {
     char dir[160];
-    snprintf(dir, sizeof dir, rel[0] ? HW_SD_ROOT "/%s" : HW_SD_ROOT "%.0s", rel);
+    real_path(rel, dir, sizeof dir);
     DIR *d = opendir(dir);
     int n = 0;
     struct dirent *e;
@@ -98,7 +106,14 @@ static int list_dir(void *ctx, const char *rel, app_dirent *out, int max)
     if (d) closedir(d);
     return n;
 }
-static void root_path(void *ctx, const char *rel, char *out, size_t n) { snprintf(out, n, rel[0] ? HW_SD_ROOT "/%s" : HW_SD_ROOT "%.0s", rel); }
+static void root_path(void *ctx, const char *rel, char *out, size_t n) { real_path(rel, out, n); }
+static int vc_mount(void *ctx, const char *rel, const uint8_t *pw, size_t pwlen, bool allow_outer_write, void (*progress)(void *, int), void *arg)
+{
+    char path[200];
+    real_path(rel, path, sizeof path);
+    return hw_vc_mount(path, pw, pwlen, allow_outer_write, progress, arg);
+}
+static void vc_unmount(void *ctx) { hw_vc_unmount(); }
 static void start_dir(void *ctx, char *out, size_t n) { snprintf(out, n, "%s", HW_DB_DIR + strlen(HW_SD_ROOT) + 1); }
 static void delay_ms(void *ctx, int ms) { vTaskDelay(pdMS_TO_TICKS(ms > 0 ? ms : 1)); }
 
@@ -205,7 +220,7 @@ static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t
 
 static const app_platform PLATFORM = {list_files, path_fn, now_fn, millis_fn, battery_fn, hid_ready, stroke, delay_ms,
                                       save_settings, present, pump, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn,
-                                      ntp_sync_fn, bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, list_dir, root_path, start_dir, NULL};
+                                      ntp_sync_fn, bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, list_dir, root_path, start_dir, vc_mount, vc_unmount, NULL};
 
 #ifdef CARDPASS_QEMU          /* QEMU debug build only (docs/qemu.md): progress + heap, no secrets */
 #include "esp_rom_sys.h"

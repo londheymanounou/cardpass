@@ -312,6 +312,31 @@ Fixed from device reports:
 Still unchecked on the device: BLE reconnect after the fix, passkeys, USB drive mode, clock/Wi-Fi, power/dim,
 battery, saving edits (keep a backup of real databases until test files pass), docs/first-hardware.md numbers.
 
+## Open databases anywhere + VeraCrypt containers (2026-10-18, branch device-bringup-fixes)
+- Picker has a last row "Browse SD card" (app_browse.c mode 1): any `.kdbx` on the card; any other file is taken to
+  be a VeraCrypt container. Back from unlock returns to the folder.
+- `components/vera`: standard file container only, AES-256-XTS, PBKDF2-HMAC-SHA512 500000 rounds (own loop with cloned
+  ipad/opad states, progress callback), 512-byte sectors, header verified (magic, both CRCs, version <= 5). Hidden
+  volumes, other ciphers/hashes, PIM, keyfiles refused. Data unit = absolute file offset / 512 (checked against
+  VeraCrypt's Volume.cpp/Xts.c). Header never written; only data sectors.
+- `firmware/src/hw_vc.c`: FatFs diskio over vera (ff_diskio_register + esp_vfs_fat_register_cfg), mounted at /vc;
+  the browser sees it as "@vc" (main.c real_path). Needs FAT/FAT32 inside (IDF FatFs has no exFAT). Read/write; falls
+  back to read-only if the file can't be opened for writing. app_lock/idle timeout/escape unmount and wipe.
+- Tests: `test_vera` (container built independently by tools/make_vera_test.py with OpenSSL; C-written sector checked
+  with `python tools/make_vera_test.py --check build/vera_work.hc`), render test walks the whole UI flow with the real
+  vera code (FAT replaced by a folder on the host). ASan/UBSan/LSan clean.
+- Device check (2026-10-18, owner): a container built by tools/make_vera_test.py (AES + SHA-512 + FAT, 8 MiB) opened,
+  a .kdbx inside it unlocked, was edited and saved, and the PC read the change. Container password step: ~18 s.
+  Still unchecked: a container made by VeraCrypt itself, non-512 sector sizes, very large containers, SD removal
+  mid-save.
+- Hidden volumes (same day): vera tries the standard header (offset 0) then the hidden one (offset 65536); a wrong
+  password costs two derivations. Hidden: data start/size from its header, XTS unit = absolute offset / 512 as before.
+  Standard volumes mount READ-ONLY unless Tab at the password screen allows saving (vc_mount's allow_outer_write;
+  return 5 = mounted read-only, toast says so): a write to an outer volume can destroy a hidden one and the container
+  can't tell. A hidden volume is always writable. Inner database names are not stored in last_db (plain-text settings).
+  Tests: vera_hidden.hc (made independently), render covers read-only default, Tab, hidden, last_db. Device test files:
+  E:/vctest/hidden.hc (outer pw cardpass-vera-test holds decoy.txt; hidden pw cardpass-hidden-test holds hidden.kdbx, pw test).
+
 ## Next step
 Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
 ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),

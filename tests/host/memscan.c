@@ -103,7 +103,7 @@ static void root_path_fn(void *c, const char *rel, char *out, size_t n) { (void)
 static void start_dir_fn(void *c, char *out, size_t n) { (void)c; if (n) out[0] = 0; }
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn, save_settings, present,
                                   pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn, bt_start_fn,
-                                  bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, list_dir_fn, root_path_fn, start_dir_fn, NULL};
+                                  bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn, list_dir_fn, root_path_fn, start_dir_fn, NULL, NULL, NULL};
 
 static void key(uint32_t k) { app_key(&A, k, true); app_key(&A, k, false); present(NULL); }
 static void feed(const char *s) { while (*s) key(ui_utf8_next(&s)); }

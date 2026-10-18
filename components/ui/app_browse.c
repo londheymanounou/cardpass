@@ -1,6 +1,9 @@
-/* File browser for choosing a key file: in KeePass any file can be a key file, so this walks the whole SD card
- * (folders first, ".." to go up, starting in the database folder). Shown from the unlock screen with Tab. */
+/* File browser: walks the whole SD card (folders first, ".." to go up, starting in the database folder).
+ * Mode 0 chooses a key file (in KeePass any file can be one), shown from the unlock screen with Tab.
+ * Mode 1 chooses a database from the picker: a .kdbx goes to the unlock screen, any other file is taken to be a
+ * VeraCrypt container and asks for its password; once mounted, its files are browsed under VC_ROOT the same way. */
 #include <stdlib.h>
+#include <strings.h>
 #include "app_priv.h"
 
 #define BR_MAX 160
@@ -41,6 +44,7 @@ static void select_row(app *a, int i)
 
 void ap_browse_open(app *a)
 {
+    a->br_mode = 0;
     ap_browse_free(a);
     a->br_ents = calloc(BR_MAX, sizeof *a->br_ents);
     if (!a->br_ents) { snprintf(a->msg, sizeof a->msg, "Out of memory"); ap_mark_all(a); return; }
@@ -65,6 +69,79 @@ void ap_browse_open(app *a)
 static void leave(app *a)
 {
     ap_browse_free(a);
+    if (a->br_mode) ap_vc_close(a);                      /* back to the picker: nothing stays mounted */
+    a->scr = a->br_mode ? SCR_PICKER : SCR_UNLOCK;
+    ap_mark_all(a);
+}
+
+/* keep_dir: come back to where the user was (back from the unlock screen) */
+void ap_browse_open_db(app *a, bool keep_dir)
+{
+    ap_browse_free(a);
+    a->br_ents = calloc(BR_MAX, sizeof *a->br_ents);
+    if (!a->br_ents) { snprintf(a->msg, sizeof a->msg, "Out of memory"); a->scr = SCR_PICKER; ap_mark_all(a); return; }
+    a->br_mode = 1;
+    if (a->vc_open && !(keep_dir && !strncmp(a->br_dir, VC_ROOT, strlen(VC_ROOT)))) snprintf(a->br_dir, sizeof a->br_dir, "%s", VC_ROOT);
+    else if (!keep_dir) a->p->start_dir(a->p->ctx, a->br_dir, sizeof a->br_dir);
+    load(a);
+    a->scr = SCR_BROWSE;
+    a->msg[0] = 0;
+    ap_mark_all(a);
+}
+
+void ap_vc_close(app *a)
+{
+    if (a->vc_open && a->p->vc_unmount) a->p->vc_unmount(a->p->ctx);
+    a->vc_open = a->vc_pending = a->from_browse = false;
+    a->vc_rel[0] = 0;
+}
+
+void ap_vc_unlock(app *a)
+{
+    a->progress = 0;
+    a->progress_t0 = 0;
+    ap_mark_all(a);
+    a->p->present(a->p->ctx);
+    int r = a->p->vc_mount ? a->p->vc_mount(a->p->ctx, a->vc_rel, (const uint8_t *)a->pw, (size_t)a->pwlen, a->vc_write, ap_kdf_progress, a) : 2;
+    ap_wipe(a->pw, sizeof a->pw);
+    a->pwlen = 0;
+    ap_progress_end(a);
+    if (r && r != 5) {
+        static const char *const why[] = {"", "Wrong password / not VeraCrypt", "Can't read that file", "Needs AES + SHA-512",
+                                          "No FAT inside the container"};
+        snprintf(a->msg, sizeof a->msg, "%s", why[r > 0 && r <= 4 ? r : 2]);
+        ap_mark_all(a);
+        return;
+    }
+    a->vc_open = true;
+    a->vc_pending = a->from_browse = false;
+    ap_browse_open_db(a, false);
+    if (r == 5) snprintf(a->msg, sizeof a->msg, "Read-only (tab at the password: allow saving)");
+}
+
+static bool is_kdbx(const char *name)
+{
+    size_t n = strlen(name);
+    return n > 5 && !strcasecmp(name + n - 5, ".kdbx");
+}
+
+/* a file picked in mode 1 */
+static void pick(app *a, const char *path, const char *name)
+{
+    ap_wipe(a->pw, sizeof a->pw);
+    a->pwlen = 0;
+    a->msg[0] = 0;
+    snprintf(a->dbname, sizeof a->dbname, "%s", name);
+    a->from_browse = true;
+    if (is_kdbx(name)) {
+        a->vc_pending = false;
+        a->p->root_path(a->p->ctx, path, a->path, sizeof a->path);
+    } else {
+        a->vc_pending = true;                            /* anything else: a VeraCrypt container */
+        a->vc_write = false;
+        snprintf(a->vc_rel, sizeof a->vc_rel, "%s", path);
+    }
+    ap_browse_free(a);
     a->scr = SCR_UNLOCK;
     ap_mark_all(a);
 }
@@ -72,6 +149,7 @@ static void leave(app *a)
 static void go_up(app *a)
 {
     if (!a->br_dir[0]) return;
+    if (a->br_mode && a->vc_open && !strcmp(a->br_dir, VC_ROOT)) { leave(a); return; }   /* out of the container */
     char came[64] = "";
     const char *sl = strrchr(a->br_dir, '/');
     snprintf(came, sizeof came, "%.63s", sl ? sl + 1 : a->br_dir);
@@ -105,6 +183,8 @@ void ap_browse_key(app *a, uint32_t k, bool fn)
         if (e->dir) {
             snprintf(a->br_dir, sizeof a->br_dir, "%s", path);
             load(a);
+        } else if (a->br_mode) {
+            pick(a, path, e->name);
         } else {
             snprintf(a->keyrel, sizeof a->keyrel, "%s", path);
             leave(a);

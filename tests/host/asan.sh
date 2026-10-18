@@ -9,7 +9,7 @@ B=build/asan
 mkdir -p $B
 CFLAGS="-std=gnu11 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
   -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_STDIO -I$C/kdbx/include -I$C/kdbx -I$C/kdbx/yxml -I$C/totp/include
-  -I$C/gen/include -I$C/search/include -I$C/typing/include -I$C/strength/include -I$C/fido/include -I$C/fido -I$D/miniz-src -I$D/mbedtls-src/include"
+  -I$C/gen/include -I$C/search/include -I$C/typing/include -I$C/strength/include -I$C/fido/include -I$C/fido -I$C/vera/include -I$D/miniz-src -I$D/mbedtls-src/include"
 
 # libraries, compiled once
 if [ ! -f $B/libdeps.a ]; then
@@ -32,6 +32,7 @@ ARGS="../../testdata $B" run test_fido test_fido.c $KDBX host_random.c $FIDO
 ARGS="../../testdata ${FUZZ_ITERS:-3000}" run fuzz fuzz.c $FIDO $KDBX $C/search/search.c $C/strength/strength.c $C/strength/wordpairs.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c
 UI="$C/ui/gfx.c $C/ui/app.c $C/ui/app_edit.c $C/ui/app_tools.c $C/ui/app_fido.c $C/ui/app_bt.c $C/ui/app_splash.c $C/ui/app_browse.c $C/ui/app_time.c $C/ui/app_anim.c $C/ui/app_account.c $C/ui/app_groups.c $C/ui/app_view.c $C/ui/font_data.c $C/ui/font_br.c $C/ui/theme_br.c $C/ui/logo_data.c $C/ui/settings.c $C/qr/qrcodegen.c -I$C/ui/include -I$C/qr"
 mkdir -p $B/renders
-ARGS="../../testdata $B/renders" run render render.c $UI $KDBX host_random.c $C/search/search.c $C/strength/strength.c $C/strength/wordpairs.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c $FIDO
+ARGS="../../testdata $B/renders" run render render.c $UI $KDBX host_random.c $C/search/search.c $C/strength/strength.c $C/strength/wordpairs.c $C/gen/gen.c $C/gen/wordlist.c $C/totp/totp.c $C/typing/layouts.c $C/typing/autotype.c $FIDO $C/vera/vera.c
 ARGS= run test_settings test_settings.c $C/ui/settings.c -I$C/ui/include
 ARGS="../../testdata $B" run test_argon2 test_argon2.c $KDBX host_random.c
+ARGS="../../testdata $B" run test_vera test_vera.c $C/vera/vera.c

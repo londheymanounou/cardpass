@@ -201,7 +201,7 @@ static void pump_fn(void *c);
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
                                   save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn,
                                   bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn,
-                                  list_dir_fn, root_path_fn, start_dir_fn, NULL};
+                                  list_dir_fn, root_path_fn, start_dir_fn, NULL, NULL, NULL};
 
 static void present(void *c)
 {

@@ -308,6 +308,7 @@ void app_lock(app *a)
     ap_bt_off(a);                                    /* a locked device must not stay discoverable */
     kdbx_close(a->db);
     a->db = NULL;
+    ap_vc_close(a);                                  /* a mounted VeraCrypt container too: its keys are wiped */
     free_lists(a);
     ap_edit_free(a);
     ap_gen_free(a);
@@ -393,6 +394,7 @@ void ap_kdf_progress(void *ctx, int pct)
 
 static void unlock(app *a)
 {
+    if (a->vc_pending) { ap_vc_unlock(a); return; }       /* the unlock screen is asking for a container's password */
     kdbx_key k;
     FILE *kf = NULL;
     char kpath[256];
@@ -423,11 +425,12 @@ static void unlock(app *a)
         snprintf(a->msg, sizeof a->msg, "Out of memory");
         return;
     }
-    if (strcmp(a->cfg.last_db, a->dbname)) {
+    if (!a->vc_open && strcmp(a->cfg.last_db, a->dbname)) {   /* not for a database inside a container: the settings file is plain text */
         snprintf(a->cfg.last_db, sizeof a->cfg.last_db, "%s", a->dbname);
         ap_apply_settings(a);
     }
     a->msg[0] = 0;
+    a->from_browse = false;
     ap_go_home(a);
 }
 
@@ -493,7 +496,14 @@ static void open_item(app *a, const list_item *it)
 static void go_back(app *a)
 {
     switch (a->scr) {
-    case SCR_UNLOCK: a->scr = SCR_PICKER; ap_wipe(a->pw, sizeof a->pw); a->pwlen = 0; a->msg[0] = 0; break;
+    case SCR_UNLOCK:
+        ap_wipe(a->pw, sizeof a->pw);
+        a->pwlen = 0;
+        a->msg[0] = 0;
+        a->vc_pending = false;
+        if (a->from_browse) { a->from_browse = false; ap_browse_open_db(a, true); return; }   /* back to the folder */
+        a->scr = SCR_PICKER;
+        break;
     case SCR_ENTRY:
         a->revealed = false;
         a->scr = a->back_scr;
@@ -594,9 +604,10 @@ void app_key(app *a, uint32_t key, bool down)
             ap_wifi_password(a, &ap);
             break;
         }
-        if (k == K_UP) ap_move_sel(a, a->ndbs, -1);
-        else if (k == K_DOWN) ap_move_sel(a, a->ndbs, 1);
-        else if (k == K_ENTER && a->ndbs) {
+        if (k == K_UP) ap_move_sel(a, a->ndbs + 1, -1);                 /* the last row browses the whole card */
+        else if (k == K_DOWN) ap_move_sel(a, a->ndbs + 1, 1);
+        else if (k == K_ENTER && a->sel == a->ndbs) ap_browse_open_db(a, false);
+        else if (k == K_ENTER) {
             snprintf(a->dbname, sizeof a->dbname, "%s", a->dbs[a->sel]);
             a->p->path(a->p->ctx, a->dbname, a->path, sizeof a->path);
             a->scr = SCR_UNLOCK;
@@ -607,6 +618,7 @@ void app_key(app *a, uint32_t key, bool down)
     case SCR_UNLOCK: /* ` is a password character here: fn+` goes back */
         if (k == K_ESC) go_back(a);
         else if (k == K_ENTER) unlock(a);
+        else if (k == K_TAB && a->vc_pending) a->vc_write = !a->vc_write, ap_mark_all(a);
         else if (k == K_TAB) ap_browse_open(a);
         else if (k == K_BACKSPACE && fn) a->keyrel[0] = 0, ap_mark_all(a);   /* fn+Backspace: no key file */
         else if (k == K_BACKSPACE) ap_utf8_backspace(a->pw, &a->pwlen), ap_mark_all(a);
@@ -691,7 +703,7 @@ void app_tick(app *a, uint32_t now_ms)
         }
     }
     uint32_t lock_ms = (uint32_t)a->cfg.autolock_s * 1000u;
-    if (a->db && lock_ms && !a->fido_active && now_ms - a->last_input_ms > lock_ms) {
+    if ((a->db || a->vc_open) && lock_ms && !a->fido_active && now_ms - a->last_input_ms > lock_ms) {
         app_lock(a);
         snprintf(a->msg, sizeof a->msg, "Locked after inactivity");
         return;
@@ -1053,12 +1065,17 @@ static void draw_unlock(app *a, ui_strip *s)
 {
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     if (a->progress >= 0) { ap_draw_progress(a, s, "Unlocking" "\xE2\x80\xA6"); return; }
-    ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 1, "Master password", T->dim, UI_W);
+    ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 1, a->vc_pending ? "VeraCrypt container password" : "Master password", T->dim, UI_W);
     int fy = CONTENT_Y + 19;
     ap_draw_field(a, s, PAD * 2, fy, UI_W - PAD * 4, F->height + 6, a->pw, true, a->pwlen);
     char kf[192];
     snprintf(kf, sizeof kf, "%s Key file: %s", ICON_FILE, a->keyrel[0] ? a->keyrel : "none");
-    ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 9, kf, a->keyrel[0] ? T->accent : T->dim, UI_W - PAD * 4);
+    if (a->vc_pending) {
+        ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 9, a->vc_write ? "Saving on (risks a hidden volume)" : "Saving off (tab: allow saving)",
+                a->vc_write ? T->warn : T->dim, UI_W - PAD * 4);
+    } else {
+        ui_text(s, &ui_font_small, PAD * 2, fy + F->height + 9, kf, a->keyrel[0] ? T->accent : T->dim, UI_W - PAD * 4);
+    }
     if (a->msg[0]) ui_text(s, F, PAD * 2, fy + F->height + 28, a->msg, T->danger, UI_W - PAD * 4);
 }
 
@@ -1097,7 +1114,11 @@ void app_draw(app *a, ui_strip *s)
     case SCR_TIME: snprintf(title, sizeof title, "%s Time", ICON_CLOCK); break;
     case SCR_ACCOUNT: snprintf(title, sizeof title, "Change password"); break;
     case SCR_BT: snprintf(title, sizeof title, "%s Bluetooth", ICON_BLUETOOTH); break;
-    case SCR_BROWSE: snprintf(title, sizeof title, "%s Key file /%.60s", ICON_FOLDER_OPEN, a->br_dir); break;
+    case SCR_BROWSE:
+        if (!a->br_mode) snprintf(title, sizeof title, "%s Key file /%.60s", ICON_FOLDER_OPEN, a->br_dir);
+        else if (!strncmp(a->br_dir, VC_ROOT, strlen(VC_ROOT))) snprintf(title, sizeof title, "%s Container%.60s", ICON_FOLDER_OPEN, a->br_dir + strlen(VC_ROOT));
+        else snprintf(title, sizeof title, "%s Open /%.60s", ICON_FOLDER_OPEN, a->br_dir);
+        break;
     case SCR_GROUPS: snprintf(title, sizeof title, "%s Groups", ICON_FOLDER_OPEN); break;
     case SCR_VIEW: snprintf(title, sizeof title, "%s %.40s", ICON_FILE, ap_view_name(a)); break;
     default: snprintf(title, sizeof title, "%s", a->db ? a->dbname : "CardPass");
@@ -1109,15 +1130,17 @@ void app_draw(app *a, ui_strip *s)
     switch (a->scr) {
     case SCR_PICKER:
         ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-        for (int i = a->top; i < a->ndbs && i < a->top + ap_visible(a); i++)
-            ap_draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
-        if (!a->ndbs) ui_text(s, F, PAD * 2, CONTENT_Y + 8, "No .kdbx files on the SD card", T->dim, UI_W);
+        for (int i = a->top; i <= a->ndbs && i < a->top + ap_visible(a); i++) {
+            if (i < a->ndbs) ap_draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
+            else ap_draw_row(a, s, i, ICON_FOLDER, T->accent, "Browse SD card", NULL, 0);
+        }
+        if (!a->ndbs) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + ap_row_h(a) + 6, "No .kdbx in the CardPass folder", T->dim, UI_W);
         if (a->msg[0]) ui_text(s, &ui_font_small, PAD * 2, UI_H - FOOT_H - 17, a->msg, T->warn, UI_W);
         hint = a->wifi_fetch.ssid[0] ? U_UPDOWN " choose  " U_ENTER " open  ` cancel" : U_UPDOWN " choose  " U_ENTER " open  tab menu";
         break;
     case SCR_UNLOCK:
         draw_unlock(a, s);
-        hint = a->progress >= 0 ? "" : U_ENTER " ok  tab file  fn+E eye  fn+` back";
+        hint = a->progress >= 0 ? "" : a->vc_pending ? U_ENTER " ok  tab saving  fn+E eye  fn+` back" : U_ENTER " ok  tab file  fn+E eye  fn+` back";
         break;
     case SCR_HOME:
     case SCR_GROUP:

@@ -47,6 +47,14 @@ add_executable(test_gen test_gen.c)
 target_link_libraries(test_gen gen m)
 add_test(NAME gen COMMAND test_gen)
 
+add_library(vera STATIC ../../components/vera/vera.c)
+target_include_directories(vera PUBLIC ../../components/vera/include)
+target_link_libraries(vera PUBLIC mbedcrypto)
+set_source_files_properties(../../components/vera/vera.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
+add_executable(test_vera test_vera.c)
+target_link_libraries(test_vera vera)
+add_test(NAME vera COMMAND test_vera ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata ${CMAKE_CURRENT_BINARY_DIR})
+
 add_library(search STATIC ../../components/search/search.c)
 target_include_directories(search PUBLIC ../../components/search/include)
 target_link_libraries(search PUBLIC kdbx)
@@ -86,7 +94,7 @@ add_library(ui STATIC ../../components/ui/gfx.c ../../components/ui/app.c ../../
 target_include_directories(ui PUBLIC ../../components/ui/include ../../components/qr)
 target_link_libraries(ui PUBLIC kdbx search strength totp typing gen fido)
 add_executable(render render.c)
-target_link_libraries(render ui)
+target_link_libraries(render ui vera)
 add_test(NAME render COMMAND render ${CMAKE_CURRENT_SOURCE_DIR}/../../testdata ${CMAKE_CURRENT_BINARY_DIR}/renders)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/renders)
 

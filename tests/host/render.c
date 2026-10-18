@@ -11,6 +11,7 @@
 #include "../../components/ui/app_priv.h"
 #include "../../components/ui/motion_br.h"
 #include "miniz.h"
+#include "vera.h"
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(d) _mkdir(d)
@@ -46,12 +47,13 @@ static int list_files(void *c, const char *ext, char names[][64], int max)
     return n;
 }
 static void path_fn(void *c, const char *name, char *out, size_t n) { (void)c; snprintf(out, n, "%s/%s", wdir, name); }
+static void root_path_fn(void *c, const char *rel, char *out, size_t n);
 /* file browser: the working folder is the "SD root" */
 static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
 {
     (void)c;
     char dir[600];
-    snprintf(dir, sizeof dir, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel);
+    root_path_fn(c, rel, dir, sizeof dir);
     DIR *d = opendir(dir);
     int n = 0;
     struct dirent *e;
@@ -70,7 +72,35 @@ static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
     if (d) closedir(d);
     return n;
 }
-static void root_path_fn(void *c, const char *rel, char *out, size_t n) { (void)c; snprintf(out, n, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel); }
+static void root_path_fn(void *c, const char *rel, char *out, size_t n)
+{
+    (void)c;
+    size_t l = strlen(VC_ROOT);
+    if (!strncmp(rel, VC_ROOT, l) && (!rel[l] || rel[l] == '/')) snprintf(out, n, "%s/vcfs%s", wdir, rel + l);   /* the "mounted" container */
+    else snprintf(out, n, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel);
+}
+/* VeraCrypt: the real vera code opens a real container; with no FAT driver on the host, its "files" are a folder (vcfs) */
+static vera vcv;
+static FILE *vc_file;
+static bool vc_on;
+static int vc_unmounts;
+static int vc_rd(void *io, uint64_t off, void *buf, size_t n) { FILE *f = io; return fseek(f, (long)off, SEEK_SET) || fread(buf, 1, n, f) != n; }
+static bool vc_last_allow;
+static int vc_mount_fn(void *c, const char *rel, const uint8_t *pw, size_t n, bool allow, void (*progress)(void *, int), void *arg)
+{
+    char p[700];
+    root_path_fn(c, rel, p, sizeof p);
+    FILE *f = fopen(p, "rb");
+    if (!f) return 2;
+    vera_io io = {vc_rd, NULL, f};
+    int r = vera_open(&vcv, &io, pw, n, progress, arg);
+    if (r) { fclose(f); return r == VERA_ERR_PASSWORD ? 1 : r == VERA_ERR_IO ? 2 : 3; }
+    vc_file = f;
+    vc_on = true;
+    vc_last_allow = allow;
+    return vera_hidden(&vcv) || allow ? 0 : 5;
+}
+static void vc_unmount_fn(void *c) { (void)c; if (vc_on) { vera_close(&vcv); fclose(vc_file); vc_on = false; vc_unmounts++; } }
 static void start_dir_fn(void *c, char *out, size_t n) { (void)c; if (n) out[0] = 0; }
 static bool time_valid = true;
 static int64_t now_s = 1790000000;
@@ -129,7 +159,7 @@ static int ntp_sync_fn(void *c, const char *ssid, const char *pass, int64_t *t)
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn,
                                   save_settings, present, pump_fn, usb_drive, backlight_fn, shutdown_fn, set_time_fn, wifi_scan_fn, ntp_sync_fn,
                                   bt_start_fn, bt_stop_fn, bt_state_fn, bt_answer_fn, bt_forget_fn,
-                                  list_dir_fn, root_path_fn, start_dir_fn, NULL};
+                                  list_dir_fn, root_path_fn, start_dir_fn, vc_mount_fn, vc_unmount_fn, NULL};
 static int battery_level_now(void) { return battery_level; }
 
 static void draw_band(uint16_t *dst, int y0, int y1)
@@ -292,6 +322,21 @@ int main(int argc, char **argv)
     const char *dbs[] = {"aes_kpxc.kdbx", "argon2.kdbx", "big1000.kdbx", "passkeys.kdbx", "keyfile_xml2.kdbx", "key_xml2.keyx", "argon2id_small.kdbx"};
     for (size_t i = 0; i < sizeof dbs / sizeof *dbs; i++) copy(dbs[i]);
     copy_as("chacha_kpxc.kdbx", "chg.kdbx");
+    copy_as("vera_test.hc", "box.hc");
+    copy_as("vera_hidden.hc", "hbox.hc");
+    snprintf(p, sizeof p, "%s/vcfs", wdir);
+    MKDIR(p);
+    snprintf(p, sizeof p, "%s/vcfs/inner.kdbx", wdir);
+    {
+        char s[512];
+        snprintf(s, sizeof s, "%s/aes_kpxc.kdbx", tdir);
+        FILE *a = fopen(s, "rb"), *b = fopen(p, "wb");
+        char buf[8192];
+        size_t n;
+        while (a && b && (n = fread(buf, 1, sizeof buf, a)) > 0) fwrite(buf, 1, n, b);
+        if (a) fclose(a);
+        if (b) fclose(b);
+    }
     snprintf(p, sizeof p, "%s/chg.keyx", wdir);
     remove(p);
     snprintf(p, sizeof p, "%s/newdb.kdbx", wdir);
@@ -1060,6 +1105,83 @@ int main(int argc, char **argv)
         key(96);                    /* -> time menu */
         key(96);                    /* -> picker */
         CHECK(A.scr == SCR_PICKER, "back to the picker");
+    }
+
+    /* Browse the whole card for a database; a file that isn't .kdbx is a VeraCrypt container (real vera code) */
+    {
+        app_lock(&A);
+        CHECK(A.scr == SCR_PICKER, "locked: the picker");
+        keys(K_UP, A.sel);
+        keys(K_DOWN, A.ndbs);
+        snap("68_picker_browse_row");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_BROWSE && A.br_mode == 1, "browse the card");
+        snap("69_browse_db");
+        #define BROWSE_TO(nm) do { int r_ = -1; for (int i_ = 0; i_ < A.br_n; i_++) if (!strcmp(A.br_ents[i_].name, nm)) r_ = i_ + (A.br_dir[0] ? 1 : 0);                                    CHECK(r_ >= 0, "%s listed", nm); keys(K_UP, A.sel); keys(K_DOWN, r_); } while (0)
+        BROWSE_TO("box.hc");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_UNLOCK && A.vc_pending && !vc_on, "a container asks for its password");
+        snap("70_vc_password");
+        type("not the password");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_UNLOCK && A.vc_pending && !vc_on && A.msg[0] && !A.pwlen, "wrong password refused");
+        snap("71_vc_wrong");
+        key(K_ESC);
+        CHECK(A.scr == SCR_BROWSE && A.br_mode == 1, "back to the folder");
+        BROWSE_TO("box.hc");
+        key(K_ENTER);
+        type("cardpass-vera-test");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_BROWSE && vc_on && A.vc_open && !strcmp(A.br_dir, VC_ROOT), "container open, browsing inside it");
+        CHECK(!vc_last_allow && strstr(A.msg, "Read-only"), "a standard volume is read-only unless allowed");
+        snap("72_vc_browse");
+        BROWSE_TO("inner.kdbx");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_UNLOCK && !A.vc_pending && strstr(A.path, "vcfs/inner.kdbx"), "a database inside the container");
+        char last[64];
+        snprintf(last, sizeof last, "%s", A.cfg.last_db);
+        type("test");
+        key(K_ENTER);
+        CHECK(A.db && A.scr == SCR_HOME && vc_on, "unlocked from inside the container");
+        CHECK(!strcmp(last, A.cfg.last_db), "the inner database's name is not remembered");
+        app_lock(&A);
+        CHECK(!vc_on && !A.vc_open && vc_unmounts == 1 && A.scr == SCR_PICKER, "lock unmounts the container");
+
+        keys(K_UP, A.sel);                                   /* leaving the container with ".." or ` also unmounts it */
+        keys(K_DOWN, A.ndbs);
+        key(K_ENTER);
+        BROWSE_TO("box.hc");
+        key(K_ENTER);
+        key(K_TAB);
+        CHECK(A.vc_write, "tab allows saving");
+        snap("73_vc_allow_saving");
+        type("cardpass-vera-test");
+        key(K_ENTER);
+        CHECK(vc_on && vc_last_allow && !A.msg[0], "mounted again, writable");
+        key(K_ESC);
+        CHECK(!vc_on && vc_unmounts == 2 && A.scr == SCR_PICKER, "escape closes the container");
+
+        keys(K_UP, A.sel);                                   /* a hidden volume: its own password, writable without asking */
+        keys(K_DOWN, A.ndbs);
+        key(K_ENTER);
+        BROWSE_TO("hbox.hc");
+        key(K_ENTER);
+        type("cardpass-hidden-test");
+        key(K_ENTER);
+        CHECK(vc_on && vera_hidden(&vcv) && !vc_last_allow && !A.msg[0] && A.scr == SCR_BROWSE, "the hidden volume opens, writable");
+        key(K_ESC);
+        CHECK(!vc_on && A.scr == SCR_PICKER, "and closes");
+
+        keys(K_UP, A.sel);                                   /* an ordinary .kdbx from the browser */
+        keys(K_DOWN, A.ndbs);
+        key(K_ENTER);
+        BROWSE_TO("argon2id_small.kdbx");
+        key(K_ENTER);
+        CHECK(A.scr == SCR_UNLOCK && !A.vc_pending && strstr(A.path, "argon2id_small.kdbx"), "a .kdbx picked in the browser");
+        key(K_ESC);
+        CHECK(A.scr == SCR_BROWSE, "back from unlock returns to the browser");
+        key(K_ESC);
+        CHECK(A.scr == SCR_PICKER, "and out of it");
     }
 
     /* USB drive mode: locks first, a file copied on the PC shows up afterwards */
