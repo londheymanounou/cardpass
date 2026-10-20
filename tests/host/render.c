@@ -249,16 +249,23 @@ static void copy(const char *name)
     if (b) fclose(b);
 }
 
+/* In the picker (a file browser): select a file of the current folder by name and open it. */
+static void pick_db(const char *name)
+{
+    if (!A.br_ents || !A.br_mode) ap_browse_open_db(&A, false);
+    int r = -1;
+    for (int i = 0; i < A.br_n; i++) if (!strcmp(A.br_ents[i].name, name)) r = i + (A.br_dir[0] ? 1 : 0);
+    CHECK(r >= 0, "%s not listed", name);
+    keys(K_UP, A.sel);
+    keys(K_DOWN, r);
+    key(K_ENTER);
+}
+
 /* From the picker: choose a database by name, type the password, unlock. */
 static void open_db(const char *name, const char *pw)
 {
     if (A.db) app_lock(&A);
-    int i = 0;
-    while (i < A.ndbs && strcmp(A.dbs[i], name)) i++;
-    CHECK(i < A.ndbs, "%s not listed", name);
-    keys(K_UP, A.sel);
-    keys(K_DOWN, i);
-    key(K_ENTER);
+    pick_db(name);
     type(pw);
     key(K_ENTER);
 }
@@ -1020,11 +1027,7 @@ int main(int argc, char **argv)
             key(K_DOWN);            /* from a database */
             CHECK(A.scr == SCR_PICKER && !A.tm && !strcmp(A.wifi_fetch.ssid, "Gmail"), "from a database: the picker");
             if (!round) snap("64_wifi_pick_db");
-            int i = 0;
-            while (i < A.ndbs && strcmp(A.dbs[i], "aes_kpxc.kdbx")) i++;
-            keys(K_UP, A.sel);
-            keys(K_DOWN, i);
-            key(K_ENTER);
+            pick_db("aes_kpxc.kdbx");
             type("test");
             if (!round) snap("65_wifi_unlock");
             ntp_refuse = !round;
@@ -1063,7 +1066,7 @@ int main(int argc, char **argv)
         key(K_TAB);                 /* menu */
         key(K_ESC);
         CHECK(!A.wifi_fetch.ssid[0], "left through the menu: the next unlock is a normal one");
-        key(K_ENTER);               /* picker -> unlock: a normal unlock now */
+        pick_db("aes_kpxc.kdbx");   /* picker -> unlock: a normal unlock now */
         type("test");
         key(K_ENTER);
         CHECK(A.db && A.scr == SCR_HOME, "normal unlock after an abandoned fetch");
@@ -1078,11 +1081,7 @@ int main(int argc, char **argv)
         key(K_DOWN);
         /* any entry works, whatever its title: "Gmail"'s password for the network "Neighbour"; ` gives up */
         for (int r2 = 0; r2 < 2; r2++) {
-            int i = 0;
-            while (i < A.ndbs && strcmp(A.dbs[i], "aes_kpxc.kdbx")) i++;
-            keys(K_UP, A.sel);
-            keys(K_DOWN, i);
-            key(K_ENTER);
+            pick_db("aes_kpxc.kdbx");
             type("test");
             int calls = ntp_calls;
             key(K_ENTER);
@@ -1111,11 +1110,8 @@ int main(int argc, char **argv)
     {
         app_lock(&A);
         CHECK(A.scr == SCR_PICKER, "locked: the picker");
-        keys(K_UP, A.sel);
-        keys(K_DOWN, A.ndbs);
         snap("68_picker_browse_row");
-        key(K_ENTER);
-        CHECK(A.scr == SCR_BROWSE && A.br_mode == 1, "browse the card");
+        CHECK(A.scr == SCR_PICKER && A.br_mode == 1, "the picker browses the card");
         snap("69_browse_db");
         #define BROWSE_TO(nm) do { int r_ = -1; for (int i_ = 0; i_ < A.br_n; i_++) if (!strcmp(A.br_ents[i_].name, nm)) r_ = i_ + (A.br_dir[0] ? 1 : 0);                                    CHECK(r_ >= 0, "%s listed", nm); keys(K_UP, A.sel); keys(K_DOWN, r_); } while (0)
         BROWSE_TO("box.hc");
@@ -1127,12 +1123,12 @@ int main(int argc, char **argv)
         CHECK(A.scr == SCR_UNLOCK && A.vc_pending && !vc_on && A.msg[0] && !A.pwlen, "wrong password refused");
         snap("71_vc_wrong");
         key(K_ESC);
-        CHECK(A.scr == SCR_BROWSE && A.br_mode == 1, "back to the folder");
+        CHECK(A.scr == SCR_PICKER && A.br_mode == 1, "back to the folder");
         BROWSE_TO("box.hc");
         key(K_ENTER);
         type("cardpass-vera-test");
         key(K_ENTER);
-        CHECK(A.scr == SCR_BROWSE && vc_on && A.vc_open && !strcmp(A.br_dir, VC_ROOT), "container open, browsing inside it");
+        CHECK(A.scr == SCR_PICKER && vc_on && A.vc_open && !strcmp(A.br_dir, VC_ROOT), "container open, browsing inside it");
         CHECK(!vc_last_allow && strstr(A.msg, "Read-only"), "a standard volume is read-only unless allowed");
         snap("72_vc_browse");
         BROWSE_TO("inner.kdbx");
@@ -1147,9 +1143,7 @@ int main(int argc, char **argv)
         app_lock(&A);
         CHECK(!vc_on && !A.vc_open && vc_unmounts == 1 && A.scr == SCR_PICKER, "lock unmounts the container");
 
-        keys(K_UP, A.sel);                                   /* leaving the container with ".." or ` also unmounts it */
-        keys(K_DOWN, A.ndbs);
-        key(K_ENTER);
+                                                             /* leaving the container with ".." or ` also unmounts it */
         BROWSE_TO("box.hc");
         key(K_ENTER);
         key(K_TAB);
@@ -1161,25 +1155,21 @@ int main(int argc, char **argv)
         key(K_ESC);
         CHECK(!vc_on && vc_unmounts == 2 && A.scr == SCR_PICKER, "escape closes the container");
 
-        keys(K_UP, A.sel);                                   /* a hidden volume: its own password, writable without asking */
-        keys(K_DOWN, A.ndbs);
-        key(K_ENTER);
+                                                             /* a hidden volume: its own password, writable without asking */
         BROWSE_TO("hbox.hc");
         key(K_ENTER);
         type("cardpass-hidden-test");
         key(K_ENTER);
-        CHECK(vc_on && vera_hidden(&vcv) && !vc_last_allow && !A.msg[0] && A.scr == SCR_BROWSE, "the hidden volume opens, writable");
+        CHECK(vc_on && vera_hidden(&vcv) && !vc_last_allow && !A.msg[0] && A.scr == SCR_PICKER, "the hidden volume opens, writable");
         key(K_ESC);
         CHECK(!vc_on && A.scr == SCR_PICKER, "and closes");
 
-        keys(K_UP, A.sel);                                   /* an ordinary .kdbx from the browser */
-        keys(K_DOWN, A.ndbs);
-        key(K_ENTER);
+                                                             /* an ordinary .kdbx from the browser */
         BROWSE_TO("argon2id_small.kdbx");
         key(K_ENTER);
         CHECK(A.scr == SCR_UNLOCK && !A.vc_pending && strstr(A.path, "argon2id_small.kdbx"), "a .kdbx picked in the browser");
         key(K_ESC);
-        CHECK(A.scr == SCR_BROWSE, "back from unlock returns to the browser");
+        CHECK(A.scr == SCR_PICKER, "back from unlock returns to the browser");
         key(K_ESC);
         CHECK(A.scr == SCR_PICKER, "and out of it");
     }
@@ -1201,7 +1191,7 @@ int main(int argc, char **argv)
         key(96);
         CHECK(!drive_on && A.scr == SCR_PICKER && !A.db, "left drive mode");
         int seen = 0;
-        for (int i = 0; i < A.ndbs; i++) seen |= !strcmp(A.dbs[i], "chacha.kdbx");
+        for (int i = 0; i < A.br_n; i++) seen |= !strcmp(A.br_ents[i].name, "chacha.kdbx");
         CHECK(seen, "new file listed after leaving");
     }
 
@@ -1213,11 +1203,7 @@ int main(int argc, char **argv)
         copy_as("key_xml2.keyx", "keys/key_xml2.keyx");
     }
     app_lock(&A);
-    int i = 0;
-    while (i < A.ndbs && strcmp(A.dbs[i], "keyfile_xml2.kdbx")) i++;
-    keys(K_UP, A.sel);
-    keys(K_DOWN, i);
-    key(K_ENTER);
+    pick_db("keyfile_xml2.kdbx");
     CHECK(A.scr == SCR_UNLOCK && !A.keyrel[0], "unlock screen, no key file yet");
     type("test");
     snap("33a_unlock_masked");
@@ -1363,7 +1349,7 @@ int main(int argc, char **argv)
     {
         app_lock(&A);
         app_init(&A, &PLAT, &cfg);
-        key(K_ENTER);
+        pick_db("aes_kpxc.kdbx");
         CHECK(A.scr == SCR_UNLOCK, "unlock screen for the progress screen test");
         A.progress_t0 = 1000;
         const int steps[] = {1, 37, 100};

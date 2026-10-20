@@ -427,6 +427,7 @@ enum { C_NAME, C_PW, C_PW2, C_CIPHER, C_TIME, C_KEYFILE, C_CREATE, C_COUNT };
 
 struct app_create {
     char name[48], pw[128], pw2[128];
+    char dir[160];    /* folder being browsed when the form was opened (relative to the SD root) */
     int cipher;       /* KDBX_AES256 / KDBX_CHACHA20 */
     int seconds;      /* unlock-time target */
     bool keyfile;
@@ -446,6 +447,7 @@ void ap_create_open(app *a)
     ap_create_free(a);
     if (!(a->cr = calloc(1, sizeof *a->cr))) return;
     snprintf(a->cr->name, sizeof a->cr->name, "passwords");
+    if (a->br_mode && a->br_ents) snprintf(a->cr->dir, sizeof a->cr->dir, "%s", a->br_dir);
     a->cr->seconds = 2;
     a->scr = SCR_CREATE;
     a->sel = a->top = 0;
@@ -488,13 +490,15 @@ static void do_create(app *a)
     if (strcmp(c->pw, c->pw2)) { snprintf(a->msg, sizeof a->msg, "Passwords differ"); return; }
     if (!c->pw[0] && !c->keyfile) { snprintf(a->msg, sizeof a->msg, "Set a password or a key file"); return; }
 
-    char file[64], kfile[64], kpath[256];
+    char file[64], kfile[64], kpath[256], rel[sizeof c->dir + 64];
     snprintf(file, sizeof file, "%s.kdbx", c->name);
     snprintf(kfile, sizeof kfile, "%s.keyx", c->name);
-    a->p->path(a->p->ctx, file, a->path, sizeof a->path);
+    snprintf(rel, sizeof rel, "%s%s%s", c->dir, c->dir[0] ? "/" : "", file);
+    a->p->root_path(a->p->ctx, rel, a->path, sizeof a->path);
     FILE *kf = NULL;
     if (c->keyfile) {
-        a->p->path(a->p->ctx, kfile, kpath, sizeof kpath);
+        snprintf(rel, sizeof rel, "%s%s%s", c->dir, c->dir[0] ? "/" : "", kfile);
+        a->p->root_path(a->p->ctx, rel, kpath, sizeof kpath);
         if ((kf = fopen(kpath, "rb"))) { fclose(kf); snprintf(a->msg, sizeof a->msg, "Key file already exists"); return; }
         kf = fopen(kpath, "wb");
         if (!kf || kdbx_keyfile_create(kf)) { if (kf) fclose(kf); snprintf(a->msg, sizeof a->msg, "Can't write the key file"); return; }
@@ -522,10 +526,14 @@ static void do_create(app *a)
         return;
     }
     snprintf(a->dbname, sizeof a->dbname, "%s", file);
+    char c_dir[sizeof c->dir];
+    snprintf(c_dir, sizeof c_dir, "%s", c->dir);
     ap_create_free(a);
     if (!ap_reindex(a)) { app_lock(a); return; }
-    snprintf(a->cfg.last_db, sizeof a->cfg.last_db, "%s", file);
-    ap_apply_settings(a);
+    if (!a->vc_open && !c_dir[0]) {                  /* only top-level databases are remembered (a container's names stay out of the plain-text settings) */
+        snprintf(a->cfg.last_db, sizeof a->cfg.last_db, "%s", file);
+        ap_apply_settings(a);
+    }
     ap_go_home(a);
     snprintf(a->msg, sizeof a->msg, "Created %.40s", file);
 }
@@ -548,7 +556,7 @@ void ap_create_key(app *a, uint32_t k, bool fn)
     a->msg[0] = 0;
     if (k == K_UP) ap_move_sel(a, C_COUNT, -1);
     else if (k == K_DOWN) ap_move_sel(a, C_COUNT, 1);
-    else if (k == '`' || k == K_ESC) { ap_create_free(a); app_lock(a); }
+    else if (k == '`' || k == K_ESC) { ap_create_free(a); a->scr = SCR_PICKER; a->sel = 0; }   /* back to the folder */
     else if (b && (k == K_ENTER || ap_printable(k))) {
         c->editing = true;
         if (k != K_ENTER && !fn) { int len = (int)strlen(b); ap_utf8_append(b, &len, cap, k); }
@@ -571,7 +579,12 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
         int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
         if (y + h <= s->y0 || y >= s->y0 + s->h) continue;
         bool sel = i == a->sel;
-        if (i == C_CREATE) { ap_draw_row(a, s, i, ICON_CHECK, T->ok, "Create database", NULL, 0); continue; }
+        if (i == C_CREATE) {
+            char where[80];
+            snprintf(where, sizeof where, "Create in /%.60s", c->dir);
+            ap_draw_row(a, s, i, ICON_CHECK, T->ok, where, NULL, 0);
+            continue;
+        }
         ap_row_bg(a, s, y, h, i);
         ui_text(s, &ui_font_small, ROW_X0, y + (h - ui_font_small.height) / 2, names[i], T->dim, 56);
         char v[64];

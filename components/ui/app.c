@@ -331,7 +331,7 @@ void app_lock(app *a)
     a->progress_t0 = 0;
     ap_rescan_files(a);
     a->keyrel[0] = 0;
-    ap_browse_free(a);
+    ap_browse_open_db(a, false);                     /* the picker is the card browser */
     a->pw_show = false;
     a->scr = SCR_PICKER;
     a->sel = a->top = 0;
@@ -604,16 +604,8 @@ void app_key(app *a, uint32_t key, bool down)
             ap_wifi_password(a, &ap);
             break;
         }
-        if (k == K_UP) ap_move_sel(a, a->ndbs + 1, -1);                 /* the last row browses the whole card */
-        else if (k == K_DOWN) ap_move_sel(a, a->ndbs + 1, 1);
-        else if (k == K_ENTER && a->sel == a->ndbs) ap_browse_open_db(a, false);
-        else if (k == K_ENTER) {
-            snprintf(a->dbname, sizeof a->dbname, "%s", a->dbs[a->sel]);
-            a->p->path(a->p->ctx, a->dbname, a->path, sizeof a->path);
-            a->scr = SCR_UNLOCK;
-            a->msg[0] = 0;
-            ap_mark_all(a);
-        }
+        if (!a->br_ents || !a->br_mode) ap_browse_open_db(a, false);
+        ap_browse_key(a, k, fn);
         break;
     case SCR_UNLOCK: /* ` is a password character here: fn+` goes back */
         if (k == K_ESC) go_back(a);
@@ -1089,7 +1081,11 @@ void app_draw(app *a, ui_strip *s)
     switch (a->scr) {
     case SCR_PICKER:
         if (a->wifi_fetch.ssid[0]) snprintf(title, sizeof title, "%s %.32s", ICON_WIFI, a->wifi_fetch.ssid);
-        else snprintf(title, sizeof title, "CardPass");
+        else {
+            const char *d = a->br_dir;
+            if (!strncmp(d, VC_ROOT, strlen(VC_ROOT))) snprintf(title, sizeof title, "%s Container%.60s", ICON_FOLDER_OPEN, d + strlen(VC_ROOT));
+            else snprintf(title, sizeof title, "%s /%.60s", ICON_FOLDER_OPEN, d);
+        }
         break;
     case SCR_UNLOCK:
         if (a->wifi_fetch.ssid[0]) snprintf(title, sizeof title, "%s %.32s", ICON_WIFI, a->wifi_fetch.ssid);
@@ -1129,14 +1125,8 @@ void app_draw(app *a, ui_strip *s)
     if (!buf) return;
     switch (a->scr) {
     case SCR_PICKER:
-        ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
-        for (int i = a->top; i <= a->ndbs && i < a->top + ap_visible(a); i++) {
-            if (i < a->ndbs) ap_draw_row(a, s, i, ICON_LOCK, T->accent, a->dbs[i], NULL, 0);
-            else ap_draw_row(a, s, i, ICON_FOLDER, T->accent, "Browse SD card", NULL, 0);
-        }
-        if (!a->ndbs) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + ap_row_h(a) + 6, "No .kdbx in the CardPass folder", T->dim, UI_W);
-        if (a->msg[0]) ui_text(s, &ui_font_small, PAD * 2, UI_H - FOOT_H - 17, a->msg, T->warn, UI_W);
-        hint = a->wifi_fetch.ssid[0] ? U_UPDOWN " choose  " U_ENTER " open  ` cancel" : U_UPDOWN " choose  " U_ENTER " open  tab menu";
+        if (!a->br_ents || !a->br_mode) ap_browse_open_db(a, false);
+        ap_browse_draw(a, s, &hint);
         break;
     case SCR_UNLOCK:
         draw_unlock(a, s);

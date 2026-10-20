@@ -69,8 +69,8 @@ void ap_browse_open(app *a)
 static void leave(app *a)
 {
     ap_browse_free(a);
-    if (a->br_mode) ap_vc_close(a);                      /* back to the picker: nothing stays mounted */
-    a->scr = a->br_mode ? SCR_PICKER : SCR_UNLOCK;
+    if (a->br_mode) { ap_vc_close(a); ap_browse_open_db(a, false); return; }   /* nothing stays mounted: start over at the top */
+    a->scr = SCR_UNLOCK;
     ap_mark_all(a);
 }
 
@@ -84,7 +84,7 @@ void ap_browse_open_db(app *a, bool keep_dir)
     if (a->vc_open && !(keep_dir && !strncmp(a->br_dir, VC_ROOT, strlen(VC_ROOT)))) snprintf(a->br_dir, sizeof a->br_dir, "%s", VC_ROOT);
     else if (!keep_dir) a->p->start_dir(a->p->ctx, a->br_dir, sizeof a->br_dir);
     load(a);
-    a->scr = SCR_BROWSE;
+    a->scr = SCR_PICKER;                                 /* the picker is this browser */
     a->msg[0] = 0;
     ap_mark_all(a);
 }
@@ -228,5 +228,5 @@ void ap_browse_draw(app *a, ui_strip *s, const char **hint)
     if (!n) ui_text(s, F, PAD * 2, CONTENT_Y + 12, "(empty folder)", T->dim, UI_W - PAD * 4);
     ap_draw_scrollbar(a, s, n);
     ap_draw_toast(a, s);
-    *hint = U_ENTER " open  left: up  ` cancel";
+    *hint = a->br_mode ? U_ENTER " open  left: up  tab menu" : U_ENTER " open  left: up  ` cancel";
 }

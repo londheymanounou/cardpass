@@ -337,6 +337,10 @@ battery, saving edits (keep a backup of real databases until test files pass), d
   Tests: vera_hidden.hc (made independently), render covers read-only default, Tab, hidden, last_db. Device test files:
   E:/vctest/hidden.hc (outer pw cardpass-vera-test holds decoy.txt; hidden pw cardpass-hidden-test holds hidden.kdbx, pw test).
 
+## Picker is the SD browser (2026-10-20)
+The lock screen / picker is the file browser itself (folders, .kdbx, other files = VeraCrypt); no separate list or "Browse SD card" row.
+"New database" (Tab menu) creates in the folder being browsed. Not yet checked on the device.
+
 ## Next step
 Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
 ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),
