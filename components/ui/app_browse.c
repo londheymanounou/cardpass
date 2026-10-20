@@ -131,6 +131,7 @@ static void pick(app *a, const char *path, const char *name)
     ap_wipe(a->pw, sizeof a->pw);
     a->pwlen = 0;
     a->msg[0] = 0;
+    if (a->vc_open && !is_kdbx(name)) { snprintf(a->msg, sizeof a->msg, "Containers can't be nested"); return; }
     snprintf(a->dbname, sizeof a->dbname, "%s", name);
     a->from_browse = true;
     if (is_kdbx(name)) {

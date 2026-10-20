@@ -15,16 +15,19 @@ static bool vol_open, read_only, registered;
 static BYTE pdrv = FF_DRV_NOT_USED;
 static char drive[3];
 
+/* fseek takes a 32-bit offset here: past 2 GiB it would wrap and read or write the wrong place */
+static bool off_ok(uint64_t off) { return off <= 0x7FFFFFFFu; }
+
 static int io_read(void *io, uint64_t off, void *buf, size_t n)
 {
     (void)io;
-    return fseek(file, (long)off, SEEK_SET) || fread(buf, 1, n, file) != n;
+    return !off_ok(off) || fseek(file, (long)off, SEEK_SET) || fread(buf, 1, n, file) != n;
 }
 
 static int io_write(void *io, uint64_t off, const void *buf, size_t n)
 {
     (void)io;
-    return fseek(file, (long)off, SEEK_SET) || fwrite(buf, 1, n, file) != n;
+    return !off_ok(off) || fseek(file, (long)off, SEEK_SET) || fwrite(buf, 1, n, file) != n;
 }
 
 static DSTATUS d_init(BYTE p) { (void)p; return read_only ? STA_PROTECT : 0; }

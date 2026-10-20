@@ -86,7 +86,7 @@ static void real_path(const char *rel, char *out, size_t n)
 /* file browser: folders relative to the SD root, no hidden entries */
 static int list_dir(void *ctx, const char *rel, app_dirent *out, int max)
 {
-    char dir[160];
+    char dir[200];                                       /* a 159-char path plus the mount prefix must not be cut short */
     real_path(rel, dir, sizeof dir);
     DIR *d = opendir(dir);
     int n = 0;
