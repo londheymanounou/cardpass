@@ -423,13 +423,15 @@ void ap_confirm_draw(app *a, ui_strip *s, const char **hint)
 
 /* ======================= new database ======================= */
 
-enum { C_NAME, C_PW, C_PW2, C_CIPHER, C_TIME, C_KEYFILE, C_CREATE, C_COUNT };
+enum { C_NAME, C_PW, C_PW2, C_CIPHER, C_KDF, C_MEM, C_TIME, C_KEYFILE, C_CREATE, C_COUNT };
 
 struct app_create {
     char name[48], pw[128], pw2[128];
     char dir[160];    /* folder being browsed when the form was opened (relative to the SD root) */
     int cipher;       /* KDBX_AES256 / KDBX_CHACHA20 */
     int seconds;      /* unlock-time target */
+    bool argon2;      /* Argon2id instead of AES-KDF */
+    int mem_mib;      /* Argon2 memory */
     bool keyfile;
     bool editing;
 };
@@ -449,6 +451,7 @@ void ap_create_open(app *a)
     snprintf(a->cr->name, sizeof a->cr->name, "passwords");
     if (a->br_mode && a->br_ents) snprintf(a->cr->dir, sizeof a->cr->dir, "%s", a->br_dir);
     a->cr->seconds = 2;
+    a->cr->mem_mib = 4;
     a->scr = SCR_CREATE;
     a->sel = a->top = 0;
     a->msg[0] = 0;
@@ -508,7 +511,26 @@ static void do_create(app *a)
     snprintf(a->msg, sizeof a->msg, "Measuring this device\xE2\x80\xA6");
     ap_mark_all(a);
     a->p->present(a->p->ctx);
-    uint64_t rounds = ap_benchmark_rounds(a, c->seconds);
+    uint64_t rounds = 0;
+    uint32_t a2_iter = 0, a2_kib = (uint32_t)c->mem_mib * 1024;
+    if (c->argon2) {                                    /* time one pass at this memory, then as many passes as fit the target */
+        a->progress = 0;
+        kdbx_set_progress(ap_kdf_progress, a);
+        uint32_t t0 = a->p->millis(a->p->ctx);
+        kdbx_err be = kdbx_argon2_bench(a2_kib);
+        uint32_t dt = a->p->millis(a->p->ctx) - t0;
+        kdbx_set_progress(NULL, NULL);
+        ap_progress_end(a);
+        if (be) {
+            if (kf) fclose(kf);
+            snprintf(a->msg, sizeof a->msg, "%s", kdbx_strerror(be));
+            return;
+        }
+        uint32_t it = (uint32_t)((uint64_t)c->seconds * 1000u / (dt ? dt : 1));
+        a2_iter = it < 1 ? 1 : it > 50 ? 50 : it;
+    } else {
+        rounds = ap_benchmark_rounds(a, c->seconds);
+    }
 
     kdbx_key key;
     kdbx_err e = kdbx_key_init(&key, c->pw[0] ? c->pw : NULL, strlen(c->pw), kf);
@@ -517,7 +539,8 @@ static void do_create(app *a)
     int64_t now = a->p->now(a->p->ctx, &valid);
     a->progress = 0;
     kdbx_set_progress(ap_kdf_progress, a);
-    if (!e) e = kdbx_create(a->path, c->cipher, rounds, &key, c->name, now, &a->db);
+    if (!e) e = a2_iter ? kdbx_create_argon2(a->path, c->cipher, a2_kib, a2_iter, &key, c->name, now, &a->db)
+                        : kdbx_create(a->path, c->cipher, rounds, &key, c->name, now, &a->db);
     kdbx_set_progress(NULL, NULL);
     ap_progress_end(a);
     kdbx_key_wipe(&key);
@@ -561,7 +584,11 @@ void ap_create_key(app *a, uint32_t k, bool fn)
         c->editing = true;
         if (k != K_ENTER && !fn) { int len = (int)strlen(b); ap_utf8_append(b, &len, cap, k); }
     } else if (a->sel == C_CIPHER && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) c->cipher = c->cipher == KDBX_AES256 ? KDBX_CHACHA20 : KDBX_AES256;
-    else if (a->sel == C_TIME && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) {
+    else if (a->sel == C_KDF && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) c->argon2 = !c->argon2;
+    else if (a->sel == C_MEM && c->argon2 && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) {
+        static const int m[] = {1, 4, 8, 16};
+        c->mem_mib = step_in(m, 4, c->mem_mib, k == K_LEFT ? -1 : 1);
+    } else if (a->sel == C_TIME && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) {
         static const int t[] = {1, 2, 3, 5};
         c->seconds = step_in(t, 4, c->seconds, k == K_LEFT ? -1 : 1);
     } else if (a->sel == C_KEYFILE && (k == K_ENTER || k == K_LEFT || k == K_RIGHT)) c->keyfile = !c->keyfile;
@@ -574,7 +601,7 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     if (!c) return;
     if (a->progress >= 0) { ap_draw_progress(a, s, "Creating" "\xE2\x80\xA6"); return; }
-    static const char *const names[] = {"Name", "Password", "Repeat", "Cipher", "Unlock in", "Key file", ""};
+    static const char *const names[] = {"Name", "Password", "Repeat", "Cipher", "KDF", "Memory", "Unlock in", "Key file", ""};
     for (int i = a->top; i < C_COUNT && i < a->top + ap_visible(a); i++) {
         int y = CONTENT_Y + (i - a->top) * ap_row_h(a), h = ap_row_h(a);
         if (y + h <= s->y0 || y >= s->y0 + s->h) continue;
@@ -594,7 +621,9 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
         case C_PW: b = c->pw; break;
         case C_PW2: b = c->pw2; break;
         case C_CIPHER: snprintf(v, sizeof v, "%s", c->cipher == KDBX_AES256 ? "AES-256" : "ChaCha20"); break;
-        case C_TIME: snprintf(v, sizeof v, "~%d s (AES-KDF)", c->seconds); break;
+        case C_KDF: snprintf(v, sizeof v, "%s", c->argon2 ? "Argon2id" : "AES-KDF"); break;
+        case C_MEM: snprintf(v, sizeof v, c->argon2 ? "%d MiB" : "—", c->mem_mib); break;
+        case C_TIME: snprintf(v, sizeof v, "~%d s", c->seconds); break;
         case C_KEYFILE: snprintf(v, sizeof v, c->keyfile ? "Generate %s.keyx" : "None", c->name); break;
         }
         if (b && sel && c->editing) ap_draw_field(a, s, 62, y, UI_W - 64, h, b, i != C_NAME, (int)strlen(b));

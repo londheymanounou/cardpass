@@ -489,6 +489,22 @@ int main(int argc, char **argv)
         kdbx_close(db);
     }
 
+    {   /* Argon2id from the start: opens with the password only, and the parameters survive a save */
+        path_in(path, wdir, "created_argon2.kdbx");
+        remove(path);
+        kdbx_key k;
+        CHECK(kdbx_key_init(&k, "argon-pw", 8, NULL) == KDBX_OK, "key");
+        CHECK((e = kdbx_create_argon2(path, KDBX_CHACHA20, 1024, 2, &k, "A2", NOW, &db)) == KDBX_OK, "create argon2: %s", kdbx_strerror(e));
+        kdbx_close(db);
+        kdbx_db *none;
+        CHECK(kdbx_create_argon2(path, KDBX_AES256, 1024, 0, &k, "x", NOW, &none) == KDBX_ERR_EDIT, "zero passes refused");
+        kdbx_key_wipe(&k);
+        CHECK(open_key(path, "argon-pw", NULL, &db) == KDBX_OK, "reopen argon2 db");
+        kdbx_close(db);
+        CHECK(open_key(path, "wrong", NULL, &db) != KDBX_OK, "argon2 db: wrong password refused");
+        CHECK(kdbx_argon2_bench(1024) == KDBX_OK, "argon2 bench");
+    }
+
     printf("save: %d failures\n", failures);
     return failures != 0;
 }

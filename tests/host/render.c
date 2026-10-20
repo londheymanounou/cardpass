@@ -1256,14 +1256,34 @@ int main(int argc, char **argv)
     type("créé 1");
     key(K_ENTER);
     key(K_RIGHT); /* ChaCha20 */
-    key(K_DOWN);
-    key(K_DOWN);
+    keys(K_DOWN, 4);
     key(K_ENTER); /* generate key file */
     snap("35_create");
     key(K_DOWN);
     key(K_ENTER);
     snap("36_created_home");
     CHECK(A.db && !strcmp(A.dbname, "newdb.kdbx"), "created: %s", A.msg);
+
+    /* the same form with Argon2id (1 MiB) */
+    app_lock(&A);
+    key(K_TAB);
+    key(K_ENTER);
+    key(K_ENTER);
+    keys(K_BACKSPACE, 9);
+    type("newdb2");
+    key(K_ENTER);
+    type("créé 2");
+    key(K_ENTER);
+    type("créé 2");
+    key(K_ENTER);
+    key(K_DOWN);
+    key(K_ENTER); /* KDF: Argon2id */
+    key(K_DOWN);
+    key(K_LEFT);  /* memory: 1 MiB */
+    snap("35b_create_argon2");
+    keys(K_DOWN, 3);
+    key(K_ENTER);
+    CHECK(A.db && !strcmp(A.dbname, "newdb2.kdbx"), "created with Argon2id: %s", A.msg);
 
     /* large font, time not set, auto-lock */
     cfg.large_font = true;

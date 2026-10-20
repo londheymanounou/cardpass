@@ -1514,8 +1514,25 @@ static void write_group_open(out_t *o, const uint8_t uuid[16], const char *name,
     xw_el(o, "LastTopVisibleEntry", "AAAAAAAAAAAAAAAAAAAAAA==");
 }
 
+static kdbx_err create_impl(const char *path, int cipher, uint64_t rounds, uint32_t a2_mem_kib, uint32_t a2_iter, const kdbx_key *key,
+                            const char *name, int64_t now, kdbx_db **db);
+
 kdbx_err kdbx_create(const char *path, int cipher, uint64_t rounds, const kdbx_key *key, const char *name,
                      int64_t now, kdbx_db **db)
+{
+    return create_impl(path, cipher, rounds, 0, 0, key, name, now, db);
+}
+
+kdbx_err kdbx_create_argon2(const char *path, int cipher, uint32_t mem_kib, uint32_t iter, const kdbx_key *key, const char *name,
+                            int64_t now, kdbx_db **db)
+{
+    *db = NULL;
+    if (!mem_kib || mem_kib > KDBX_ARGON2_MAX_KIB || !iter) return KDBX_ERR_EDIT;
+    return create_impl(path, cipher, 0, mem_kib, iter, key, name, now, db);
+}
+
+static kdbx_err create_impl(const char *path, int cipher, uint64_t rounds, uint32_t a2_mem_kib, uint32_t a2_iter, const kdbx_key *key,
+                            const char *name, int64_t now, kdbx_db **db)
 {
     static const char ZERO_UUID[] = "AAAAAAAAAAAAAAAAAAAAAA==";
     size_t pl = strlen(path);
@@ -1529,7 +1546,7 @@ kdbx_err kdbx_create(const char *path, int cipher, uint64_t rounds, const kdbx_k
     *db = NULL;
     if (o) out_init(o);
     if (!tmp || !o || !tpl || !nh) goto done;
-    if (!rounds || (cipher != KDBX_AES256 && cipher != KDBX_CHACHA20)) { err = KDBX_ERR_EDIT; goto done; }
+    if ((!rounds && !a2_iter) || (cipher != KDBX_AES256 && cipher != KDBX_CHACHA20)) { err = KDBX_ERR_EDIT; goto done; }
     if ((f = fopen(path, "rb"))) { fclose(f); f = NULL; err = KDBX_ERR_IO; goto done; } /* never overwrite */
     snprintf(tmp, pl + 5, "%s.tmp", path);
 
@@ -1552,8 +1569,17 @@ kdbx_err kdbx_create(const char *path, int cipher, uint64_t rounds, const kdbx_k
     tpl->rawlen = n;
     tpl->cipher = cipher;
     tpl->ivlen = ivlen;
+    if (a2_iter) {                                     /* Argon2id; build_header() adds the salt and writes the parameters */
+        tpl->kdf = KDF_ARGON2;
+        tpl->a2_type = KDBX_ARGON2_ID;
+        tpl->a2_lanes = 2;
+        tpl->a2_version = 0x13;
+        tpl->a2_mem = (uint64_t)a2_mem_kib * 1024;
+        tpl->a2_iter = a2_iter;
+        tpl->a2_saltlen = 32;
+    }
     if ((err = build_header(tpl, nh, true, rounds)) != KDBX_OK) goto done;
-    kdbx_aes_kdf(nh->kdf_seed, nh->rounds, key->composite, tk);
+    if ((err = kdbx_kdf(nh, key->composite, tk)) != KDBX_OK) goto done;
 
     if (!(f = fopen(tmp, "wb"))) { err = KDBX_ERR_IO; goto done; }
     if ((err = out_begin(o, f, nh, tk)) != KDBX_OK) goto done;

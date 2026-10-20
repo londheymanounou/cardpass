@@ -202,6 +202,17 @@ kdbx_err kdbx_kdf(const kdbx_header *h, const uint8_t composite[32], uint8_t tk[
     return kdbx_argon2(&a, composite, 32, tk, 32, progress_cb, progress_ctx);
 }
 
+kdbx_err kdbx_argon2_bench(uint32_t mem_kib)
+{
+    static const uint8_t salt[32], pw[32];
+    uint8_t out[32];
+    kdbx_argon2_params a = {KDBX_ARGON2_ID, 0x13, 2, 1, mem_kib, salt, NULL, NULL, sizeof salt, 0, 0};
+    if (progress_cb) progress_cb(progress_ctx, 0);
+    kdbx_err e = kdbx_argon2(&a, pw, sizeof pw, out, sizeof out, progress_cb, progress_ctx);
+    mbedtls_platform_zeroize(out, sizeof out);
+    return e;
+}
+
 void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32])
 {
     uint8_t b[32];

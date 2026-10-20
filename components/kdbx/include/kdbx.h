@@ -181,6 +181,12 @@ enum { KDBX_AES256, KDBX_CHACHA20 };
 kdbx_err kdbx_create(const char *path, int cipher, uint64_t rounds, const kdbx_key *key, const char *name,
                      int64_t now, kdbx_db **db);
 
+/* Same, with Argon2id (2 lanes, `mem_kib` of memory, `iter` passes) instead of AES-KDF. */
+kdbx_err kdbx_create_argon2(const char *path, int cipher, uint32_t mem_kib, uint32_t iter, const kdbx_key *key, const char *name,
+                            int64_t now, kdbx_db **db);
+/* One Argon2id pass at `mem_kib` on dummy input: the caller times it to choose `iter`. */
+kdbx_err kdbx_argon2_bench(uint32_t mem_kib);
+
 /* Write a new random KeePass XML v2 key file (32-byte key). */
 kdbx_err kdbx_keyfile_create(FILE *f);
 
