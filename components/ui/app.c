@@ -396,7 +396,7 @@ void ap_kdf_progress(void *ctx, int pct)
  * so it only slows down someone who does not power-cycle; a copy of the file on a PC is not slowed at all. */
 bool ap_gate(app *a)
 {
-    if (a->fails < 5) return false;
+    if (!a->cfg.pw_lockout || a->fails < 5) return false;
     uint32_t left = a->fail_until - a->p->millis(a->p->ctx);
     if ((int32_t)left <= 0) return false;
     snprintf(a->msg, sizeof a->msg, "Too many tries: wait %us", (unsigned)((left + 999) / 1000));
@@ -406,7 +406,7 @@ bool ap_gate(app *a)
 
 void ap_gate_note(app *a, bool wrong)
 {
-    if (!wrong) { a->fails = 0; return; }
+    if (!wrong || !a->cfg.pw_lockout) { a->fails = 0; return; }
     if (a->fails < 100) a->fails++;
     if (a->fails >= 5) a->fail_until = a->p->millis(a->p->ctx) + (30000u << (a->fails - 5 > 4 ? 4 : a->fails - 5));
 }

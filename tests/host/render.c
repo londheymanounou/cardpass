@@ -498,11 +498,11 @@ int main(int argc, char **argv)
     key('`');
     CHECK(strstr(saved_settings, "theme=daylight") && strstr(saved_settings, "layout=UK QWERTY"), "settings saved: %s", saved_settings);
     snap("25_home_light");
-    for (int on = 0; on < 2; on++) {   /* Settings -> Clock in bar (the last row): off, then back on */
+    for (int on = 0; on < 2; on++) {   /* Settings -> Clock in bar (second to last): off, then back on */
         key(K_TAB);
         keys(K_DOWN, 5);
         key(K_ENTER);
-        key(K_UP);
+        keys(K_UP, 2);
         key(K_RIGHT);
         key('`');
         CHECK(A.cfg.bar_clock == (on == 1) && strstr(saved_settings, on ? "bar_clock=on" : "bar_clock=off"), "clock in bar %d", on);
@@ -1342,7 +1342,11 @@ int main(int argc, char **argv)
     for (int i = 0; i < A.br_n; i++) gone &= strcmp(A.br_ents[i].name, "zz_ren") != 0;
     CHECK(gone && !A.br_prompt, "folder deleted: %s", A.msg);
 
-    /* five wrong passwords in a row pause unlocking, even for the right one */
+    /* five wrong passwords in a row pause unlocking, even for the right one (a setting, off by default) */
+    CHECK(!A.cfg.pw_lockout, "the pause is off by default");
+    for (int i = 0; i < 6; i++) { pick_db("aes_kpxc.kdbx"); type("nope"); key(K_ENTER); key(K_ESC); }
+    CHECK(A.fails == 0 && !strstr(A.msg, "Too many"), "off: wrong passwords are never counted");
+    A.cfg.pw_lockout = true;
     pick_db("aes_kpxc.kdbx");
     for (int i = 0; i < 5; i++) {
         type("not the password");

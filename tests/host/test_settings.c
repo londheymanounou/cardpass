@@ -17,6 +17,7 @@ int main(void)
     s.theme = 3;
     s.large_font = s.reveal_toggle = s.fn_arrows = true;
     s.bar_clock = false;
+    s.pw_lockout = true;
     s.autolock_s = 60;
     s.tz_minutes = -300;
     strcpy(s.layout, "FR AZERTY");
