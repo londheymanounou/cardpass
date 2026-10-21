@@ -12,7 +12,7 @@ void *__real_malloc(size_t n);
 void *__real_calloc(size_t a, size_t b);
 void *__real_realloc(void *p, size_t n);
 void __real_free(void *p);
-static size_t cur, peak;
+static size_t cur, peak, biggest, big_calls[16], nbig;
 #define HDR 16
 
 void *__wrap_malloc(size_t n)
@@ -21,6 +21,8 @@ void *__wrap_malloc(size_t n)
     if (!p) return NULL;
     memcpy(p, &n, sizeof n);
     if ((cur += n) > peak) peak = cur;
+    if (n > biggest) biggest = n;
+    if (n >= 3000 && nbig < 16) big_calls[nbig++] = n;
     return p + HDR;
 }
 void *__wrap_calloc(size_t a, size_t b)
@@ -97,8 +99,13 @@ static void probe(const char *dir, const char *work, const char *name)
 
     peak = cur;
     size_t before = cur;
+    biggest = 0;
+    nbig = 0;
     e = kdbx_save(&db, dst, NULL, 0, 1790000000, NULL, 0);
     size_t save_peak = peak - before;
+    printf("  save: largest single allocation %zu B; allocations >= 3000 B:", biggest);
+    for (size_t i = 0; i < nbig; i++) printf(" %zu", big_calls[i]);
+    printf("\n");
     if (e) { printf("%s: save %s\n", name, kdbx_strerror(e)); return; }
 
     size_t att_peak = 0;

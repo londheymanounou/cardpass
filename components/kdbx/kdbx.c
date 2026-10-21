@@ -249,13 +249,59 @@ typedef struct {
     bool inf_done;
     size_t dict_ofs;
     tinfl_decompressor inf;
-    uint8_t dict[TINFL_LZ_DICT_SIZE];
+    uint8_t *dict;              /* TINFL_LZ_DICT_SIZE: see dict_get() */
     /* inner header */
     uint8_t ih[5], val[64];
     int ihave;
     uint32_t remain, vlen;
     bool in_xml, have_id, have_key;
 } pipeline;
+
+/* The 32 KB inflate window is the biggest block an unlock or a save needs in one piece. After the first unlock the heap can
+ * be fragmented so that no such hole is left, and every later save failed with "out of memory" although plenty was free. So
+ * one window is kept (wiped) while the database is unlocked and handed to the next unlock / save / verify; app_lock gives it
+ * back through kdbx_release_buffers(). */
+static uint8_t *dict_spare;
+
+static uint8_t *dict_get(void)
+{
+    uint8_t *d = dict_spare;
+    dict_spare = NULL;
+    return d ? d : malloc(TINFL_LZ_DICT_SIZE);
+}
+
+static void dict_put(uint8_t *d)
+{
+    if (!d) return;
+    mbedtls_platform_zeroize(d, TINFL_LZ_DICT_SIZE);      /* decompressed XML passed through it */
+    if (dict_spare) free(d);
+    else dict_spare = d;
+}
+
+void kdbx_release_buffers(void)
+{
+    free(dict_spare);
+    dict_spare = NULL;
+}
+
+static pipeline *pipeline_new(void)
+{
+    pipeline *p = calloc(1, sizeof *p);
+    if (p && !(p->dict = dict_get())) {
+        free(p);
+        p = NULL;
+    }
+    return p;
+}
+
+static void pipeline_free(pipeline *p)
+{
+    if (!p) return;
+    dict_put(p->dict);
+    p->dict = NULL;
+    mbedtls_platform_zeroize(p, sizeof *p);
+    free(p);
+}
 
 static kdbx_err inner_field_done(pipeline *p)
 {
@@ -442,7 +488,7 @@ static kdbx_err index_bin(void *ctx, const uint8_t *d, size_t n);
  * fed in chunks of `chunk` bytes as the real pipeline would. */
 kdbx_err kdbx_index_payload(const uint8_t *d, size_t n, bool gzip, size_t chunk, kdbx_db **out)
 {
-    pipeline *p = calloc(1, sizeof *p);
+    pipeline *p = pipeline_new();
     kdbx_db *db = calloc(1, sizeof *db);
     xml_index *xi = malloc(sizeof *xi);
     kdbx_sink s = {index_xml, index_bin, xi, {0}, {0}};
@@ -462,7 +508,7 @@ kdbx_err kdbx_index_payload(const uint8_t *d, size_t n, bool gzip, size_t chunk,
         xml_index_wipe(xi);
     }
     free(xi);
-    free(p);
+    pipeline_free(p);
     if (err) kdbx_close(db);
     else *out = db;
     return err;
@@ -491,7 +537,7 @@ done:
 
 kdbx_err kdbx_read_file(FILE *f, const uint8_t *composite, uint8_t tk[32], kdbx_header *h, kdbx_sink *s)
 {
-    pipeline *p = calloc(1, sizeof *p);
+    pipeline *p = pipeline_new();
     uint8_t sums[64], mac[32], hmac_base[64], master[32];
     mbedtls_md_context_t md;
     kdbx_err err;
@@ -530,8 +576,7 @@ done:
     mbedtls_platform_zeroize(master, sizeof master);
     mbedtls_aes_free(&p->aes);
     mbedtls_chacha20_free(&p->chacha);
-    mbedtls_platform_zeroize(p, sizeof *p);
-    free(p);
+    pipeline_free(p);
     return err;
 }
 

@@ -308,6 +308,7 @@ void app_lock(app *a)
     ap_bt_off(a);                                    /* a locked device must not stay discoverable */
     kdbx_close(a->db);
     a->db = NULL;
+    kdbx_release_buffers();                          /* the inflate window kept for saves */
     ap_vc_close(a);                                  /* a mounted VeraCrypt container too: its keys are wiped */
     free_lists(a);
     ap_edit_free(a);

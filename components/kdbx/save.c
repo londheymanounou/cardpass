@@ -44,16 +44,16 @@ typedef struct {
     mbedtls_md_context_t md;
     uint8_t hmac_base[64];
     uint64_t idx;
-    uint8_t block[BLOCK];
+    uint8_t *block;             /* BLOCK bytes; the three big buffers are separate allocations (8 KB each) so a fragmented heap can serve them */
     size_t blen;
     int cipher;
     mbedtls_aes_context aes;
     mbedtls_chacha20_context chacha, inner;
     uint8_t iv[16], pend[16], tmp[512];
     size_t plen;
-    uint8_t stored[STORED];
+    uint8_t *stored;            /* STORED bytes */
     size_t slen;
-    uint16_t head[4096];
+    uint16_t *head;             /* 4096 entries */
     uint8_t zbuf[256];
     size_t zlen;
     uint32_t bitbuf;
@@ -190,7 +190,7 @@ static void lz(out_t *o)
 {
     const uint8_t *b = o->stored;
     size_t n = o->slen, i = 0;
-    memset(o->head, 0xff, sizeof o->head);
+    memset(o->head, 0xff, 4096 * sizeof *o->head);
     while (i < n) {
         size_t len = 0, dist = 0;
         if (i + 3 <= n) {
@@ -1051,12 +1051,16 @@ static kdbx_err run_pass(saver *s, FILE *in, uint8_t tk[32], kdbx_header *h, pro
 
 /* ======================= file output ======================= */
 
-static void out_init(out_t *o)
+static bool out_init(out_t *o)
 {
     mbedtls_md_init(&o->md);
     mbedtls_aes_init(&o->aes);
     mbedtls_chacha20_init(&o->chacha);
     mbedtls_chacha20_init(&o->inner);
+    o->block = calloc(1, BLOCK);
+    o->stored = calloc(1, STORED);
+    o->head = calloc(4096, sizeof *o->head);
+    return o->block && o->stored && o->head;            /* on false the caller still calls out_free */
 }
 
 static void out_free(out_t *o)
@@ -1065,6 +1069,11 @@ static void out_free(out_t *o)
     mbedtls_aes_free(&o->aes);
     mbedtls_chacha20_free(&o->chacha);
     mbedtls_chacha20_free(&o->inner);
+    if (o->block) mbedtls_platform_zeroize(o->block, BLOCK);
+    if (o->stored) mbedtls_platform_zeroize(o->stored, STORED);
+    free(o->block);
+    free(o->stored);
+    free(o->head);
     mbedtls_platform_zeroize(o, sizeof *o);
 }
 
@@ -1412,7 +1421,7 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, s
     h = malloc(sizeof *h);
     nh = malloc(sizeof *nh);
     if (!s || !o || !h || !nh) goto done;
-    out_init(o);
+    if (!out_init(o)) goto done;
     snprintf(tmp, pl + 5, "%s.tmp", path);
     snprintf(bak, pl + 5, "%s.bak", path);
 
@@ -1549,8 +1558,7 @@ static kdbx_err create_impl(const char *path, int cipher, uint64_t rounds, uint3
     kdbx_err err = KDBX_ERR_NOMEM;
 
     *db = NULL;
-    if (o) out_init(o);
-    if (!tmp || !o || !tpl || !nh) goto done;
+    if (!tmp || !o || !tpl || !nh || !out_init(o)) goto done;
     if ((!rounds && !a2_iter) || (cipher != KDBX_AES256 && cipher != KDBX_CHACHA20)) { err = KDBX_ERR_EDIT; goto done; }
     if ((f = fopen(path, "rb"))) { fclose(f); f = NULL; err = KDBX_ERR_IO; goto done; } /* never overwrite */
     snprintf(tmp, pl + 5, "%s.tmp", path);

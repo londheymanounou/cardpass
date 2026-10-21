@@ -95,6 +95,8 @@ bool kdbx_kdf_accel_active(void);
 /* The AES-KDF itself (public for the rounds benchmark when creating a database). */
 void kdbx_aes_kdf(const uint8_t seed[32], uint64_t rounds, const uint8_t in[32], uint8_t out[32]);
 void kdbx_close(kdbx_db *db); /* wipes everything; NULL ok */
+/* Gives back the buffer kept between unlocks and saves (a 32 KB inflate window): call it when locking. */
+void kdbx_release_buffers(void);
 
 const kdbx_entry *kdbx_entries(const kdbx_db *db);
 const kdbx_group *kdbx_groups(const kdbx_db *db);
