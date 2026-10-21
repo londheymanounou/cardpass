@@ -187,6 +187,7 @@ typedef struct {
     const kdbx_entry **flist;  /* registration: entries the passkey could be added to (row 1..nflist; row 0 = a new entry) */
     int nflist, fother;        /* fother: a last row "Other entry..." lists every entry */
     const kdbx_entry *fchosen; /* the decision: NULL = a new entry */
+    const kdbx_entry *fwarn;   /* an entry that already holds a passkey was picked: waiting for "replace it?" */
     int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
     bool fido_active;
 

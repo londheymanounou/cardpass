@@ -65,11 +65,10 @@ static bool has_ci(const char *hay, const char *needle)
     return false;
 }
 
-/* entries that can take a passkey: none yet (an entry holds one), and not in the recycle bin */
-static bool eligible(const app *a, const kdbx_entry *e)
-{
-    return !kdbx_field_get(e, "KPEX_PASSKEY_PRIVATE_KEY_PEM") && e->group != kdbx_recycle_bin(a->db);
-}
+static bool has_passkey(const kdbx_entry *e) { return kdbx_field_get(e, "KPEX_PASSKEY_PRIVATE_KEY_PEM") != NULL; }
+
+/* every entry outside the recycle bin can take a passkey; one that already holds a passkey has it replaced (after a warning) */
+static bool eligible(const app *a, const kdbx_entry *e) { return e->group != kdbx_recycle_bin(a->db); }
 
 /* all = every eligible entry; else the likely ones: the site in the URL, or its name / first label in the title */
 static void build_flist(app *a, bool all)
@@ -86,7 +85,7 @@ static void build_flist(app *a, bool all)
     for (const kdbx_entry *e = a->flist ? kdbx_entries(a->db) : NULL; e; e = e->next) {
         if (!eligible(a, e)) continue;
         total++;
-        bool m = all || has_ci(e->url, n->rp_id) || (n->rp_name[0] && has_ci(e->title, n->rp_name)) || (label[0] && has_ci(e->title, label));
+        bool m = (all || has_ci(e->url, n->rp_id) || (n->rp_name[0] && has_ci(e->title, n->rp_name)) || (label[0] && has_ci(e->title, label))) && (all || !has_passkey(e));   /* suggestions never replace a passkey */
         if (m && a->nflist < FL_MAX) a->flist[a->nflist++] = e;
     }
     a->fother = !all && total > a->nflist;
@@ -102,6 +101,7 @@ int app_register_passkey(app *a, const fido_new *n)
     int scr = a->scr;
     a->fnew = n;
     a->fchosen = NULL;
+    a->fwarn = NULL;
     build_flist(a, false);
     a->fdecision = 0;
     a->fido_active = true;
@@ -122,6 +122,7 @@ int app_register_passkey(app *a, const fido_new *n)
     a->flist = NULL;
     a->nflist = a->fother = 0;
     a->fchosen = NULL;
+    a->fwarn = NULL;
     a->fido_active = false;
     a->last_input_ms = a->now_ms;
     char why[sizeof a->msg];
@@ -140,6 +141,12 @@ int app_register_passkey(app *a, const fido_new *n)
 void ap_fido_key(app *a, uint32_t k, bool fn)
 {
     (void)fn;
+    if (a->fnew && a->fwarn) {                                       /* "this entry already has a passkey: replace it?" */
+        if (k == K_ENTER) a->fchosen = a->fwarn, a->fwarn = NULL, a->fdecision = 1;
+        else if (k == '`' || k == K_ESC) a->fwarn = NULL;
+        ap_mark_all(a);
+        return;
+    }
     if (a->fnew) {                                                   /* registration: pick where it goes, Enter, ` denies */
         int rows = 1 + a->nflist + a->fother;
         if (k == K_UP || k == K_DOWN) {
@@ -150,7 +157,9 @@ void ap_fido_key(app *a, uint32_t k, bool fn)
         } else if (k == K_ENTER) {
             if (a->fother && a->sel == rows - 1) { build_flist(a, true); a->top = 0; a->sel = a->nflist ? 1 : 0; }   /* every entry */
             else {
-                a->fchosen = a->sel ? a->flist[a->sel - 1] : NULL;
+                const kdbx_entry *e = a->sel ? a->flist[a->sel - 1] : NULL;
+                if (e && has_passkey(e)) { a->fwarn = e; ap_mark_all(a); return; }          /* replacing one: ask first */
+                a->fchosen = e;
                 a->fdecision = 1;
             }
         } else if (k == '`' || k == K_ESC) a->fdecision = -1;
@@ -166,6 +175,18 @@ void ap_fido_key(app *a, uint32_t k, bool fn)
 void ap_fido_draw(app *a, ui_strip *s, const char **hint)
 {
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
+    if (a->fnew && a->fwarn) {
+        char old[128] = "", line[200];
+        const kdbx_field *rf = kdbx_field_get(a->fwarn, "KPEX_PASSKEY_RELYING_PARTY");
+        if (!rf || kdbx_reveal(a->db, rf, old, sizeof old)) old[0] = 0;
+        ui_text(s, F, PAD * 2, CONTENT_Y + 4, "Replace its passkey?", T->warn, UI_W - PAD * 4);
+        ui_text(s, F, PAD * 2, CONTENT_Y + 4 + F->height + 4, a->fwarn->title, T->fg, UI_W - PAD * 4);
+        snprintf(line, sizeof line, "It holds one for %s", old[0] ? old : "another site");
+        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 10, line, T->dim, UI_W - PAD * 4);
+        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 24, "The old one stays in the entry's history.", T->dim, UI_W - PAD * 4);
+        *hint = U_ENTER " replace  ` back";
+        return;
+    }
     if (a->fnew) {
         char who[200];
         snprintf(who, sizeof who, "%s: save to", a->fnew->user_name[0] ? a->fnew->user_name : "(no name)");
@@ -181,7 +202,9 @@ void ap_fido_draw(app *a, ui_strip *s, const char **hint)
             const kdbx_entry *e = i && !(a->fother && i == rows - 1) ? a->flist[i - 1] : NULL;
             const char *name = i == 0 ? "New entry" : e ? e->title : "Other entry...";
             int x = PAD * 2 + ui_text(s, F, PAD * 2, y + (h - F->height) / 2, icon, i == 0 ? T->accent : T->dim, 16) + 4;
-            ui_text(s, F, x, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, UI_W - x - PAD);
+            int tag = e && has_passkey(e) ? ui_text_width(&ui_font_small, "passkey") + 6 : 0;
+            ui_text(s, F, x, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, UI_W - x - PAD - tag);
+            if (tag) ui_text(s, &ui_font_small, UI_W - PAD - tag + 6, y + (h - ui_font_small.height) / 2, "passkey", sel ? T->sel_fg : T->warn, tag);
         }
         *hint = U_UPDOWN " choose  " U_ENTER " save  ` deny";
         return;

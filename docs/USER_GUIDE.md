@@ -103,8 +103,9 @@ USB drive, set time, groups, change password, Bluetooth.
   To **create** a passkey on the Cardputer, unlock the database first (on the home screen or a group), plug it in
   by USB and choose "create a passkey" / "security key" on the site: the Cardputer shows the site and account, press
   Enter to save. Choose where it goes: **New entry**, an entry the Cardputer suggests for that site (its URL or title
-  matches), or **Other entry...** for any entry that has no passkey yet; adding it to an existing entry keeps that entry's
-  password and other fields as they are. Passkeys use KeePassXC's passkey fields (ES256 only), so KeePassXC can use
+  matches), or **Other entry...** for any entry at all. Adding it to an existing entry keeps that entry's password and
+  other fields as they are; if the entry already holds a passkey the Cardputer asks before replacing it (the old one
+  stays in the entry's history). Passkeys use KeePassXC's passkey fields (ES256 only), so KeePassXC can use
   them too. The passkey lives in the database file: back that file up.
 - **USB drive**: Menu -> USB drive locks the database and makes the SD card a normal drive on your
   computer, for copying `.kdbx` and key files. Eject it on the computer first, then press `` ` ``.

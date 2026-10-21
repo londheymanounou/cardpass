@@ -243,7 +243,8 @@ static void pump_fn(void *c)
     if (pump_script == 6 && pump_n == 2) key(K_DOWN);                      /* "Other entry..." */
     if (pump_script == 6 && pump_n == 3) key(K_ENTER);                     /* every entry is listed now */
     if (pump_script == 6 && pump_n == 4) { snap("40d_passkey_register_all"); key(K_DOWN); }
-    if (pump_script == 6 && pump_n == 5) key(K_ENTER);
+    if (pump_script == 6 && pump_n == 5) key(K_ENTER);                     /* an entry with a passkey: the warning appears */
+    if (pump_script == 6 && pump_n == 6) { snap("40e_passkey_replace_warning"); key(K_ENTER); }
 }
 
 static void key(uint32_t k) { app_key(&A, k, true); app_key(&A, k, false); }
@@ -638,8 +639,9 @@ int main(int argc, char **argv)
         const kdbx_entry *want = NULL;
         int seen = 0;
         for (const kdbx_entry *e = kdbx_entries(A.db); e && !want; e = e->next)
-            if (!kdbx_field_get(e, "KPEX_PASSKEY_PRIVATE_KEY_PEM") && e->group != kdbx_recycle_bin(A.db) && ++seen == 2) want = e;
+            if (e->group != kdbx_recycle_bin(A.db) && ++seen == 2) want = e;
         char want_title[128] = "", want_pw[256] = "", got_pw[256] = "";
+        bool had_passkey = want && kdbx_field_get(want, "KPEX_PASSKEY_PRIVATE_KEY_PEM");
         if (want) {
             snprintf(want_title, sizeof want_title, "%s", want->title);
             kdbx_reveal(A.db, kdbx_field_get(want, "Password"), want_pw, sizeof want_pw);
@@ -654,6 +656,8 @@ int main(int argc, char **argv)
             if (!strcmp(e->title, want_title)) w2 = e;
         CHECK(fido_find(A.db, "nomatch.example", fc, 2) == 1 && w2 && fc[0].e == w2, "the passkey is on %s", want_title);
         CHECK(w2 && !kdbx_reveal(A.db, kdbx_field_get(w2, "Password"), got_pw, sizeof got_pw) && !strcmp(want_pw, got_pw), "that entry's password is untouched");
+        CHECK(had_passkey, "the picked entry already held a passkey (so the replace warning was exercised)");
+        CHECK(fido_find(A.db, "mail.google.com", fc, 2) == 0, "its old passkey was replaced, not duplicated");
         /* every entry of the database can take a passkey, whatever it holds (attachments, notes, history, custom fields) */
         {
             char titles[16][128];
