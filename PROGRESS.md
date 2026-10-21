@@ -309,7 +309,8 @@ Fixed from device reports:
   override. Untested on the device after the fix: reconnect without re-pairing.
 - UX: ; , . / are arrows without fn (Settings -> Arrows), fn+E reveals on the entry view, "Keyboard" setting
   renamed "PC layout".
-Still unchecked on the device: BLE reconnect after the fix, passkeys, USB drive mode, clock/Wi-Fi, power/dim,
+Passkeys: signing in to GitHub over USB worked on the device (2026-10-21; tested by the owner).
+Still unchecked on the device: BLE reconnect after the fix, USB drive mode, clock/Wi-Fi, power/dim,
 battery, saving edits (keep a backup of real databases until test files pass), docs/first-hardware.md numbers.
 
 ## Open databases anywhere + VeraCrypt containers (2026-10-18, branch device-bringup-fixes)
