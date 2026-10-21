@@ -59,10 +59,12 @@ static void send_msg(uint32_t cid, uint8_t cmd, const uint8_t *d, size_t n)
 /* ---- device UI stand-in ---- */
 static const char *want_user;   /* pick this account; NULL = decline */
 static size_t last_n;
+static int asked;
 static int choose(void *ctx, const char *rp, const fido_cred *c, size_t n)
 {
     (void)ctx; (void)rp;
     last_n = n;
+    asked++;
     for (size_t i = 0; i < n && want_user; i++)
         if (!strcmp(c[i].user_name, want_user)) return (int)i;
     return -1;
@@ -93,7 +95,8 @@ static int assertion(const char *rp, const fido_cred *allow, size_t nallow, cons
     if (extra_opt) {
         cbor_uint(&w, 5);
         cbor_map(&w, 1);
-        cbor_text(&w, extra_opt); cbor_bool(&w, true);
+        if (!strcmp(extra_opt, "silent")) cbor_text(&w, "up"), cbor_bool(&w, false);     /* up=false */
+        else cbor_text(&w, extra_opt), cbor_bool(&w, true);
     }
     send_msg(cid, 0x90, req, 1 + w.n);
     if (rxcmd != 0x90 || !rxlen) return -1;
@@ -176,6 +179,13 @@ int main(int argc, char **argv)
     CHECK(assertion("ed.example", NULL, 0, NULL, NULL) == CTAP2_ERR_UNSUPPORTED_ALGORITHM, "Ed25519 refused");
     want_user = NULL;
     CHECK(assertion("webauthn.io", NULL, 0, NULL, NULL) == CTAP2_ERR_OPERATION_DENIED, "user declines");
+    {   /* up=false: answered without asking, the UP flag is clear; with no passkey it is still NO_CREDENTIALS */
+        int before = asked;
+        CHECK(assertion("webauthn.io", NULL, 0, "silent", NULL) == 0 && asked == before, "silent probe: no prompt");
+        CHECK(rxlen > 40, "silent probe: assertion returned");
+        CHECK(assertion("nothing.example", NULL, 0, "silent", NULL) == CTAP2_ERR_NO_CREDENTIALS && asked == before, "silent probe, no passkey");
+        CHECK(assertion("webauthn.io", NULL, 0, NULL, NULL) == CTAP2_ERR_OPERATION_DENIED && asked == before + 1, "a normal request still asks");
+    }
     want_user = "alice";
     CHECK(assertion("webauthn.io", NULL, 0, "rk", NULL) == CTAP2_ERR_UNSUPPORTED_OPTION, "rk option");
 

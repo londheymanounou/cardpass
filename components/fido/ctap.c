@@ -178,7 +178,7 @@ static int get_assertion(const fido_env *env, cbor_r *r, uint8_t *resp, size_t m
     const uint8_t *cdh = NULL;
     struct { const uint8_t *id; size_t len; } allow[MAX_ALLOW];
     size_t nallow = 0;
-    bool has_allow = false;
+    bool has_allow = false, silent = false;
 
     if (!cbor_next(r, &it) || it.type != CBOR_MAP) return CTAP2_ERR_INVALID_CBOR;
     for (uint64_t i = 0; i < it.val; i++) {
@@ -213,7 +213,8 @@ static int get_assertion(const fido_env *env, cbor_r *r, uint8_t *resp, size_t m
                 cbor_item kk, v;
                 if (!cbor_next(r, &kk) || !cbor_next(r, &v)) return CTAP2_ERR_INVALID_CBOR;
                 if (text_eq(&kk, "rk")) return CTAP2_ERR_UNSUPPORTED_OPTION; /* invalid for getAssertion */
-                /* up=false (silent probe): still confirmed by the user below; uv: always verified */
+                /* up=false: a silent probe (browsers ask which credential exists): answered without the user, UP flag clear */
+                if (text_eq(&kk, "up") && v.type == CBOR_SIMPLE && v.val == 20) silent = true;
             }
         } else if (key == 6) {
             return CTAP2_ERR_PIN_AUTH_INVALID; /* no clientPin declared */
@@ -237,14 +238,14 @@ static int get_assertion(const fido_env *env, cbor_r *r, uint8_t *resp, size_t m
         if (ok) pick[npick++] = all[i];
     }
     if (!npick) { st = CTAP2_ERR_NO_CREDENTIALS; goto out; }
-    int sel = env->choose(env->ctx, rp, pick, npick);
+    int sel = silent ? 0 : env->choose(env->ctx, rp, pick, npick);
     if (sel < 0 || (size_t)sel >= npick) { st = CTAP2_ERR_OPERATION_DENIED; goto out; }
     const fido_cred *c = &pick[sel];
 
     uint8_t auth[37], sig[600];
     size_t siglen;
     mbedtls_sha256((const uint8_t *)rp, strlen(rp), auth, 0);
-    auth[32] = FLAG_UP | FLAG_UV | (c->be ? FLAG_BE : 0) | (c->bs ? FLAG_BS : 0);
+    auth[32] = (silent ? 0 : FLAG_UP | FLAG_UV) | (c->be ? FLAG_BE : 0) | (c->bs ? FLAG_BS : 0);
     memset(auth + 33, 0, 4); /* signature counter: KeePassXC always uses 0 */
     if ((st = sign(env->db, c->e, auth, sizeof auth, cdh, sig, sizeof sig, &siglen)) != CTAP2_OK) goto out;
 
