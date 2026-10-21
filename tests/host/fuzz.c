@@ -137,6 +137,7 @@ static bool at_totp(void *c, char *b, size_t sz) { (void)c; snprintf(b, sz, "123
 static void at_stroke(void *c, uint8_t k, uint8_t m) { (void)c; (void)k; (void)m; }
 static void at_delay(void *c, int ms) { (void)c; (void)ms; }
 
+static int fz_store(void *c, const fido_new *n) { (void)c; (void)n; return (int)below(3); }
 static int fz_choose(void *c, const char *rp, const fido_cred *cr, size_t n) { (void)c; (void)rp; (void)cr; return (int)below((uint32_t)n + 1) - 1; }
 static void fz_send(void *c, const uint8_t r[64]) { (void)c; (void)r; }
 
@@ -179,11 +180,11 @@ int main(int argc, char **argv)
         if (!pf || kdbx_open(pf, &key, &pdb)) { fprintf(stderr, "passkeys.kdbx\n"); return 2; }
         fclose(pf);
     }
-    fido_env fenv = {pdb, fz_choose, NULL};
+    fido_env fenv = {pdb, fz_choose, NULL, fz_store};
     fido_cred pc[4];
     fido_find(pdb, "webauthn.io", pc, 4);
-    static uint8_t reqbuf[2][512];
-    blob reqs[2];
+    static uint8_t reqbuf[3][512];
+    blob reqs[3];
     {
         cbor_w w = {reqbuf[0] + 1, 0, 511, false};
         reqbuf[0][0] = 0x02;
@@ -198,6 +199,18 @@ int main(int argc, char **argv)
         reqs[0] = (blob){reqbuf[0], 1 + w.n};
         reqbuf[1][0] = 0x04;
         reqs[1] = (blob){reqbuf[1], 1};
+        cbor_w mw = {reqbuf[2] + 1, 0, 511, false};                 /* makeCredential */
+        reqbuf[2][0] = 0x01;
+        uint8_t uid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        cbor_map(&mw, 5);
+        cbor_uint(&mw, 1); cbor_bytes(&mw, h, 32);
+        cbor_uint(&mw, 2); cbor_map(&mw, 2); cbor_text(&mw, "id"); cbor_text(&mw, "example.org"); cbor_text(&mw, "name"); cbor_text(&mw, "Example");
+        cbor_uint(&mw, 3); cbor_map(&mw, 3); cbor_text(&mw, "id"); cbor_bytes(&mw, uid, 8); cbor_text(&mw, "name"); cbor_text(&mw, "zoe");
+        cbor_text(&mw, "displayName"); cbor_text(&mw, "Zoe");
+        cbor_uint(&mw, 4); cbor_array(&mw, 2); cbor_map(&mw, 2); cbor_text(&mw, "alg"); cbor_int(&mw, -7); cbor_text(&mw, "type"); cbor_text(&mw, "public-key");
+        cbor_map(&mw, 2); cbor_text(&mw, "alg"); cbor_int(&mw, -257); cbor_text(&mw, "type"); cbor_text(&mw, "public-key");
+        cbor_uint(&mw, 7); cbor_map(&mw, 1); cbor_text(&mw, "rk"); cbor_bool(&mw, true);
+        reqs[2] = (blob){reqbuf[2], 1 + mw.n};
     }
     static uint8_t repbuf[2][64] = {{0xFF, 0xFF, 0xFF, 0xFF, 0x86, 0, 8, 1, 2, 3, 4, 5, 6, 7, 8},
                                     {0, 0, 0, 1, 0x90, 0, 1, 0x04}};
@@ -251,7 +264,7 @@ int main(int argc, char **argv)
         at_type((char *)m.p, kbd_layout_get((int)below((uint32_t)kbd_layout_count())), &ops, 0, &ae);
         free(m.p);
 
-        m = mutate(reqs, 2, 600); /* CTAP2 requests */
+        m = mutate(reqs, 3, 600); /* CTAP2 requests */
         ctap2_handle(&fenv, m.p, m.n, resp, sizeof resp);
         free(m.p);
         for (int r = 0; r < 4; r++) { /* CTAPHID reports */

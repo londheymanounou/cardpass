@@ -100,7 +100,10 @@ USB drive, set time, groups, change password, Bluetooth.
   turns itself off after 2 minutes without typing, when you lock, and in drive mode.
 - **Passkeys**: passkeys stored in KeePassXC work on sites that offer a security key. When a site asks,
   the Cardputer shows the site and the account: press Enter to approve, `` ` `` to deny.
-  (Registering a new passkey is done in KeePassXC.)
+  To **create** a passkey on the Cardputer, unlock the database first (on the home screen or a group), plug it in
+  by USB and choose "create a passkey" / "security key" on the site: the Cardputer shows the site and account, press
+  Enter to create. It is saved as a normal entry (KeePassXC's passkey fields, ES256 only), so KeePassXC can use it
+  too. The passkey lives in the database file: back that file up.
 - **USB drive**: Menu -> USB drive locks the database and makes the SD card a normal drive on your
   computer, for copying `.kdbx` and key files. Eject it on the computer first, then press `` ` ``.
 

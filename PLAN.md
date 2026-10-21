@@ -19,7 +19,7 @@ A fast, offline password manager with strict software-level secret handling, run
 | TOTP time | Manual entry + Wi-Fi NTP sync (locked state only). Optional Grove RTC module supported if plugged in |
 | Sync | Manual file copy: remove SD card, or USB drive (MSC) mode |
 | Editing | Add / edit / delete entries, password generator, create new database |
-| Passkeys | Use existing KeePassXC passkeys stored in the KDBX (assertion only, no registration) |
+| Passkeys | Use KeePassXC passkeys stored in the KDBX; register new ones (ES256, saved as KeePassXC-compatible entries) |
 | Hardening | Software-only. NO eFuse burning (no Secure Boot, no flash encryption, no JTAG fuse) |
 | Distribution | Must flash and run from M5Burner and SD-card launchers (e.g. M5Launcher), like any normal Cardputer firmware |
 | Password reveal | Setting: "hold key to reveal" OR "press key to toggle reveal" (user's choice) |
@@ -192,7 +192,7 @@ Each stage has acceptance tests. Don't start the next until they pass.
 
 ### Stage 7 — Passkeys (from KeePassXC entries)
 - Read KeePassXC passkey attributes (the `KPEX_PASSKEY_*` fields — verify exact names against KeePassXC source).
-- CTAPHID transport over the composite USB device; CTAP2 `authenticatorGetInfo` + `authenticatorGetAssertion` only. No `makeCredential`, so registration stays in KeePassXC.
+- CTAPHID transport over the composite USB device; CTAP2 `authenticatorGetInfo`, `authenticatorGetAssertion` and `authenticatorMakeCredential` (ES256, attestation "none", stored as an entry; needs the database unlocked).
 - ECDSA P-256 signing with mbedTLS, private key decrypted on demand and wiped after signing.
 - User presence = physical key press on the Cardputer. Device unlocked = user verification (verify how to declare this correctly in getInfo).
 - Use pico-fido or similar open-source FIDO firmware as a reference only.

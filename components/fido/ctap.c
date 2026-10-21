@@ -3,6 +3,8 @@
 #include <string.h>
 #include "cbor.h"
 #include "fido.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/ecp.h"
 #include "mbedtls/pk.h"
 #include "mbedtls/platform_util.h"
 #include "mbedtls/sha256.h"
@@ -278,6 +280,222 @@ out:
     return st;
 }
 
+/* ---------------- registration ---------------- */
+
+static size_t b64url_encode(const uint8_t *in, size_t n, char *out, size_t max)
+{
+    static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    size_t o = 0;
+    for (size_t i = 0; i < n; i += 3) {
+        uint32_t v = (uint32_t)in[i] << 16 | (i + 1 < n ? (uint32_t)in[i + 1] << 8 : 0) | (i + 2 < n ? in[i + 2] : 0);
+        size_t chars = n - i >= 3 ? 4 : n - i + 1;
+        if (o + chars + 1 > max) return 0;
+        for (size_t c = 0; c < chars; c++) out[o++] = T[v >> (18 - 6 * c) & 63];
+    }
+    out[o] = 0;
+    return o;
+}
+
+/* PKCS#8 PEM of a P-256 key: the fixed header OpenSSL writes, then d and the uncompressed point. */
+static bool p256_pem(const uint8_t d[32], const uint8_t pub[65], char *pem, size_t max)
+{
+    static const uint8_t HEAD[] = {0x30, 0x81, 0x87, 0x02, 0x01, 0x00, 0x30, 0x13, 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01,
+                                   0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07, 0x04, 0x6D, 0x30, 0x6B, 0x02, 0x01, 0x01,
+                                   0x04, 0x20};
+    static const uint8_t MID[] = {0xA1, 0x44, 0x03, 0x42, 0x00};
+    uint8_t der[138];
+    char b64[200];
+    size_t n = 0, bl = 0, o = 0;
+    memcpy(der, HEAD, sizeof HEAD), n = sizeof HEAD;
+    memcpy(der + n, d, 32), n += 32;
+    memcpy(der + n, MID, sizeof MID), n += sizeof MID;
+    memcpy(der + n, pub, 65), n += 65;
+    bool ok = n == sizeof der && !mbedtls_base64_encode((unsigned char *)b64, sizeof b64, &bl, der, n);
+    if (ok) {
+        o = (size_t)snprintf(pem, max, "-----BEGIN PRIVATE KEY-----\n");
+        for (size_t i = 0; i < bl && o + 66 < max; i += 64) {
+            size_t k = bl - i < 64 ? bl - i : 64;
+            memcpy(pem + o, b64 + i, k), o += k;
+            pem[o++] = '\n';
+        }
+        ok = o + 27 < max;
+        if (ok) o += (size_t)snprintf(pem + o, max - o, "-----END PRIVATE KEY-----\n");
+    }
+    mbedtls_platform_zeroize(der, sizeof der);
+    mbedtls_platform_zeroize(b64, sizeof b64);
+    return ok;
+}
+
+#define BAD_CBOR do { st = CTAP2_ERR_INVALID_CBOR; goto out; } while (0)
+
+static int make_credential(const fido_env *env, cbor_r *r, uint8_t *resp, size_t max, size_t *rlen)
+{
+    cbor_item it, k;
+    const uint8_t *cdh = NULL;
+    fido_new *nw = calloc(1, sizeof *nw);
+    uint8_t uid[64], excl[MAX_ALLOW][128];
+    uint8_t cred[32] = {0}, pub[65] = {0};
+    size_t uidlen = 0, exlen[MAX_ALLOW], nex = 0;
+    bool es256 = false, have_user = false;
+    int st = CTAP2_OK;
+    if (!nw) return CTAP1_ERR_OTHER;
+
+    if (!cbor_next(r, &it) || it.type != CBOR_MAP) BAD_CBOR;
+    for (uint64_t i = 0; i < it.val; i++) {
+        int64_t key;
+        if (!cbor_next(r, &k) || !cbor_int_value(&k, &key)) BAD_CBOR;
+        if (key == 1) {
+            if (!cbor_next(r, &k) || k.type != CBOR_BYTES || k.val != 32) BAD_CBOR;
+            cdh = k.data;
+        } else if (key == 2 || key == 3) {                                       /* rp / user: maps of id, name, displayName */
+            cbor_item m, kk, v;
+            if (!cbor_next(r, &m) || m.type != CBOR_MAP) BAD_CBOR;
+            for (uint64_t j = 0; j < m.val; j++) {
+                if (!cbor_next(r, &kk) || kk.type != CBOR_TEXT || !cbor_next(r, &v)) BAD_CBOR;
+                if (key == 3 && text_eq(&kk, "id")) {
+                    if (v.type != CBOR_BYTES || v.val > sizeof uid) { st = CTAP1_ERR_INVALID_LENGTH; goto out; }
+                    memcpy(uid, v.data, v.val), uidlen = (size_t)v.val, have_user = true;
+                } else if (v.type == CBOR_TEXT) {
+                    char *dst = NULL;
+                    size_t cap = 0;
+                    if (key == 2 && text_eq(&kk, "id")) dst = nw->rp_id, cap = sizeof nw->rp_id;
+                    else if (key == 2 && text_eq(&kk, "name")) dst = nw->rp_name, cap = sizeof nw->rp_name;
+                    else if (key == 3 && text_eq(&kk, "name")) dst = nw->user_name, cap = sizeof nw->user_name;
+                    else if (key == 3 && text_eq(&kk, "displayName")) dst = nw->user_display, cap = sizeof nw->user_display;
+                    if (dst) {
+                        size_t n = v.val < cap - 1 ? (size_t)v.val : cap - 1;    /* long names are cut, never overflow */
+                        memcpy(dst, v.data, n), dst[n] = 0;
+                    }
+                } else if (v.type == CBOR_ARRAY || v.type == CBOR_MAP) {         /* e.g. an icon: not used */
+                    uint64_t sub = v.type == CBOR_ARRAY ? v.val : v.val * 2;
+                    for (uint64_t s = 0; s < sub; s++)
+                        if (!cbor_skip(r)) BAD_CBOR;
+                }
+            }
+        } else if (key == 4) {                                                   /* pubKeyCredParams: is ES256 (-7) among them? */
+            if (!cbor_next(r, &k) || k.type != CBOR_ARRAY) BAD_CBOR;
+            for (uint64_t a = 0; a < k.val; a++) {
+                cbor_item m, kk, v;
+                if (!cbor_next(r, &m) || m.type != CBOR_MAP) BAD_CBOR;
+                int64_t alg = 0;
+                for (uint64_t j = 0; j < m.val; j++) {
+                    if (!cbor_next(r, &kk)) BAD_CBOR;
+                    if (text_eq(&kk, "alg")) {
+                        if (!cbor_next(r, &v) || !cbor_int_value(&v, &alg)) BAD_CBOR;
+                    } else if (!cbor_skip(r)) {
+                        BAD_CBOR;
+                    }
+                }
+                if (alg == -7) es256 = true;
+            }
+        } else if (key == 5) {                                                   /* excludeList: ids already registered */
+            if (!cbor_next(r, &k) || k.type != CBOR_ARRAY) BAD_CBOR;
+            for (uint64_t a = 0; a < k.val; a++) {
+                cbor_item m, kk, v;
+                if (!cbor_next(r, &m) || m.type != CBOR_MAP) BAD_CBOR;
+                for (uint64_t j = 0; j < m.val; j++) {
+                    if (!cbor_next(r, &kk)) BAD_CBOR;
+                    if (text_eq(&kk, "id")) {
+                        if (!cbor_next(r, &v) || v.type != CBOR_BYTES) BAD_CBOR;
+                        if (nex < MAX_ALLOW && v.val <= sizeof excl[0]) memcpy(excl[nex], v.data, v.val), exlen[nex++] = (size_t)v.val;
+                    } else if (!cbor_skip(r)) {
+                        BAD_CBOR;
+                    }
+                }
+            }
+        } else if (key == 7) {                                                   /* options: rk and uv are fine; up=false is not */
+            if (!cbor_next(r, &k) || k.type != CBOR_MAP) BAD_CBOR;
+            for (uint64_t j = 0; j < k.val; j++) {
+                cbor_item kk, v;
+                if (!cbor_next(r, &kk) || !cbor_next(r, &v)) BAD_CBOR;
+                if (text_eq(&kk, "up") && v.type == CBOR_SIMPLE && v.val == 20) { st = CTAP2_ERR_UNSUPPORTED_OPTION; goto out; }
+            }
+        } else if (key == 8) {
+            st = CTAP2_ERR_PIN_AUTH_INVALID;                                     /* no clientPin declared */
+            goto out;
+        } else if (!cbor_skip(r)) {                                              /* extensions, protocol, ...: ignored */
+            BAD_CBOR;
+        }
+    }
+    if (r->err) BAD_CBOR;
+    if (!nw->rp_id[0] || !cdh || !have_user) { st = CTAP2_ERR_MISSING_PARAMETER; goto out; }
+    if (!es256) { st = CTAP2_ERR_UNSUPPORTED_ALGORITHM; goto out; }
+    if (!env->store) { st = CTAP2_ERR_NOT_ALLOWED; goto out; }
+
+    fido_cred *have = malloc(sizeof *have * MAX_CREDS);                           /* already registered for this site? */
+    if (!have) { st = CTAP1_ERR_OTHER; goto out; }
+    size_t nh = fido_find(env->db, nw->rp_id, have, MAX_CREDS);
+    if (nh > MAX_CREDS) nh = MAX_CREDS;
+    for (size_t i = 0; i < nh && st == CTAP2_OK; i++)
+        for (size_t x = 0; x < nex; x++)
+            if (exlen[x] == have[i].cred_len && !memcmp(excl[x], have[i].cred_id, exlen[x])) st = CTAP2_ERR_CREDENTIAL_EXCLUDED;
+    mbedtls_platform_zeroize(have, sizeof *have * MAX_CREDS);
+    free(have);
+    if (st != CTAP2_OK) goto out;
+
+    /* the key pair and the credential id */
+    uint8_t d[32], auth[37 + 16 + 2 + 32 + 80];
+    mbedtls_ecp_keypair kp;
+    mbedtls_ecp_group grp;
+    mbedtls_mpi dm;
+    mbedtls_ecp_point Q;
+    size_t publen = 0, n = 0;
+    mbedtls_ecp_keypair_init(&kp);
+    mbedtls_ecp_group_init(&grp);
+    mbedtls_mpi_init(&dm);
+    mbedtls_ecp_point_init(&Q);
+    bool ok = !mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, &kp, rng, NULL) && !mbedtls_ecp_export(&kp, &grp, &dm, &Q) &&
+              !mbedtls_mpi_write_binary(&dm, d, 32) &&
+              !mbedtls_ecp_point_write_binary(&grp, &Q, MBEDTLS_ECP_PF_UNCOMPRESSED, &publen, pub, sizeof pub) && publen == 65;
+    mbedtls_ecp_keypair_free(&kp);
+    mbedtls_ecp_group_free(&grp);
+    mbedtls_mpi_free(&dm);
+    mbedtls_ecp_point_free(&Q);
+    if (ok) {
+        cp_random(cred, sizeof cred);
+        ok = b64url_encode(cred, sizeof cred, nw->cred_b64, sizeof nw->cred_b64) &&
+             (!uidlen || b64url_encode(uid, uidlen, nw->user_b64, sizeof nw->user_b64)) && p256_pem(d, pub, nw->pem, sizeof nw->pem);
+    }
+    mbedtls_platform_zeroize(d, sizeof d);
+    if (!ok) { st = CTAP1_ERR_OTHER; goto out; }
+
+    /* authData with the attested credential: rp hash, flags, counter 0, AAGUID, id, COSE key */
+    mbedtls_sha256((const uint8_t *)nw->rp_id, strlen(nw->rp_id), auth, 0);
+    n = 32;
+    auth[n++] = FLAG_UP | FLAG_UV | 0x40 | FLAG_BE | FLAG_BS;                    /* 0x40: attested credential data follows */
+    memset(auth + n, 0, 4), n += 4;
+    memcpy(auth + n, AAGUID, 16), n += 16;
+    auth[n++] = 0, auth[n++] = sizeof cred;
+    memcpy(auth + n, cred, sizeof cred), n += sizeof cred;
+    cbor_w cw = {auth + n, 0, sizeof auth - n, false};
+    cbor_map(&cw, 5);                                                            /* COSE_Key, canonical order */
+    cbor_uint(&cw, 1); cbor_uint(&cw, 2);                                        /* kty EC2 */
+    cbor_uint(&cw, 3); cbor_int(&cw, -7);                                        /* alg ES256 */
+    cbor_int(&cw, -1); cbor_uint(&cw, 1);                                        /* crv P-256 */
+    cbor_int(&cw, -2); cbor_bytes(&cw, pub + 1, 32);
+    cbor_int(&cw, -3); cbor_bytes(&cw, pub + 33, 32);
+    if (cw.overflow) { st = CTAP1_ERR_OTHER; goto out; }
+    n += cw.n;
+
+    int sr = env->store(env->ctx, nw);                                           /* ask the user, write the entry */
+    if (sr == 1) { st = CTAP2_ERR_OPERATION_DENIED; goto out; }
+    if (sr != 0) { st = CTAP1_ERR_OTHER; goto out; }
+
+    cbor_w w = {resp + 1, 0, max - 1, false};                                    /* attestation "none" */
+    cbor_map(&w, 3);
+    cbor_uint(&w, 1); cbor_text(&w, "none");
+    cbor_uint(&w, 2); cbor_bytes(&w, auth, n);
+    cbor_uint(&w, 3); cbor_map(&w, 0);
+    if (w.overflow) st = CTAP1_ERR_OTHER;
+    else *rlen = w.n;
+out:
+    mbedtls_platform_zeroize(cred, sizeof cred);
+    mbedtls_platform_zeroize(pub, sizeof pub);
+    mbedtls_platform_zeroize(nw, sizeof *nw);
+    free(nw);
+    return st;
+}
+
 size_t ctap2_handle(const fido_env *env, const uint8_t *req, size_t n, uint8_t *resp, size_t max)
 {
     if (!n || max < 2) { resp[0] = CTAP1_ERR_INVALID_COMMAND; return 1; }
@@ -289,7 +507,9 @@ size_t ctap2_handle(const fido_env *env, const uint8_t *req, size_t n, uint8_t *
     case 0x02:                                               /* authenticatorGetAssertion */
         st = env->db ? get_assertion(env, &r, resp, max, &rlen) : CTAP2_ERR_NOT_ALLOWED;
         break;
-    case 0x01: st = CTAP2_ERR_OPERATION_DENIED; break;      /* makeCredential: register in KeePassXC */
+    case 0x01:                                               /* authenticatorMakeCredential */
+        st = env->db ? make_credential(env, &r, resp, max, &rlen) : CTAP2_ERR_NOT_ALLOWED;
+        break;
     case 0x07: st = CTAP2_ERR_OPERATION_DENIED; break;      /* reset: never */
     case 0x08: st = CTAP2_ERR_NOT_ALLOWED; break;           /* getNextAssertion: the user picks on the device */
     default: st = CTAP1_ERR_INVALID_COMMAND;

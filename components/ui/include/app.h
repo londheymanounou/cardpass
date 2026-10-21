@@ -182,6 +182,7 @@ typedef struct {
     const fido_cred *fcreds;
     size_t nfcreds;
     char frp[64];
+    const fido_new *fnew;      /* a passkey registration is waiting for the user (else a sign-in: fcreds) */
     int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
     bool fido_active;
 
@@ -222,3 +223,6 @@ bool app_dirty(app *a, int *y0, int *y1);     /* dirty band, then cleared */
 void app_draw(app *a, ui_strip *s);           /* draws the whole screen clipped to s */
 /* Modal passkey confirmation for fido_env.choose: returns the chosen index or -1 (denied/timeout). */
 int app_ask_passkey(app *a, const char *rp, const fido_cred *creds, size_t n);
+/* Register a new passkey (authenticatorMakeCredential): confirm on the device, then save it as an entry. 0 stored,
+ * 1 declined / timed out, 2 failed (also: not on a browsing screen, or locked). */
+int app_register_passkey(app *a, const fido_new *n);

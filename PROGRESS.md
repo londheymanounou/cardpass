@@ -349,6 +349,13 @@ selected row's size and last-modified time. 5 wrong passwords in a row pause unl
 fn+L locks from any screen. Argon2id in New database, weak-password warning, build id on the splash. "Groups" is second in the
 unlocked Tab menu. None of this is checked on the device yet.
 
+## Passkey registration (2026-10-21)
+`authenticatorMakeCredential` (components/fido/ctap.c): ES256 only, attestation "none", discoverable; the entry is written with
+KeePassXC's KPEX_PASSKEY_* fields (flags BE/BS = 1, PKCS#8 PEM) after an Enter on the device; needs the database unlocked and a
+browsing screen (home/group/search/entry). Tested: test_fido (authData/COSE layout, PEM loads in OpenSSL, signs for the COSE
+key, exclude list, declined/failed/locked), render (confirm screen, entry saved, found by fido_find, pykeepass reads it).
+Not yet checked on the device or with a real site.
+
 ## Next step
 Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
 ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),

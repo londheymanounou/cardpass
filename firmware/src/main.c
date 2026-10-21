@@ -178,6 +178,15 @@ static int fido_choose(void *ctx, const char *rp, const fido_cred *creds, size_t
     return r;
 }
 
+static int fido_store(void *ctx, const fido_new *n)
+{
+    fido_modal = true;
+    keepalive_at = 0;
+    int r = app_register_passkey(&A, n);
+    fido_modal = false;
+    return r;
+}
+
 /* One pass of the device loop; also what modal screens (passkey confirmation) run while they wait. */
 static void pump(void *ctx)
 {
@@ -297,7 +306,7 @@ void app_main(void)
         pump(NULL);
         uint8_t report[64];
         while (hw_usb_fido_recv(report)) {
-            fido_env env = {A.db, fido_choose, NULL};    /* db NULL while locked: requests are refused */
+            fido_env env = {A.db, fido_choose, NULL, fido_store};    /* db NULL while locked: requests are refused */
             ctaphid_report(&HID, report, &env, usb_send, NULL);
         }
     }

@@ -15,12 +15,17 @@
 #ifdef _WIN32
 #include <direct.h>
 #define MKDIR(d) _mkdir(d)
+#define RMDIR(d) _rmdir(d)
 #else
 #include <sys/stat.h>
+#include <unistd.h>
 #define MKDIR(d) mkdir(d, 0755)
+#define RMDIR(d) rmdir(d)
 #endif
 
 #define STRIP 16
+/* app_init starts from scratch: free what the previous run held (the picker's file list) first, so LeakSanitizer stays quiet */
+#define APP_INIT(...) (ap_browse_free(&A), app_init(__VA_ARGS__))
 static const char *tdir, *odir;
 static char wdir[512];
 static uint16_t panel[UI_W * UI_H];
@@ -231,6 +236,8 @@ static void pump_fn(void *c)
     if (pump_script == 1 && pump_n == 2) { snap("40_passkey_confirm"); key(K_DOWN); }
     if (pump_script == 1 && pump_n == 3) key(K_ENTER);
     if (pump_script == 2 && pump_n == 2) key('`');
+    if (pump_script == 3 && pump_n == 2) { snap("40b_passkey_register"); key(K_ENTER); }
+    if (pump_script == 4 && pump_n == 2) key('`');
 }
 
 static void key(uint32_t k) { app_key(&A, k, true); app_key(&A, k, false); }
@@ -352,9 +359,9 @@ int main(int argc, char **argv)
     snprintf(p, sizeof p, "%s/newdb.keyx", wdir);
     remove(p);
     snprintf(p, sizeof p, "%s/zz_new", wdir);
-    rmdir(p);
+    RMDIR(p);
     snprintf(p, sizeof p, "%s/zz_ren", wdir);
-    rmdir(p);
+    RMDIR(p);
     snprintf(p, sizeof p, "%s/newdb2.kdbx", wdir);
     remove(p);
     snprintf(p, sizeof p, "%s/newdb2.kdbx.tmp", wdir);
@@ -365,7 +372,7 @@ int main(int argc, char **argv)
     cfg.splash = false;                 /* the splash has its own test */
     cfg.animations = false;             /* all screenshots show the settled state; the animation test enables it */
 
-    app_init(&A, &PLAT, &cfg);
+    APP_INIT(&A, &PLAT, &cfg);
     snap("01_picker");
     open_db("aes_kpxc.kdbx", "wrong`pw");
     snap("02_wrong_password");
@@ -559,6 +566,32 @@ int main(int argc, char **argv)
         CHECK(r == -1 && pump_n > 50 && A.db, "times out after 30 s: %d after %d passes", r, pump_n);
         key('l' | K_FN);
         CHECK(A.db == NULL || A.scr != SCR_FIDO, "not stuck in the modal");
+    }
+
+    /* registering a passkey (what a browser's "create passkey" triggers): confirm, then it is an entry */
+    {
+        open_db("passkeys.kdbx", "test");              /* the block above ended locked */
+        fido_new nw = {0};
+        snprintf(nw.rp_id, sizeof nw.rp_id, "example.org");
+        snprintf(nw.user_name, sizeof nw.user_name, "zoe");
+        snprintf(nw.cred_b64, sizeof nw.cred_b64, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        snprintf(nw.user_b64, sizeof nw.user_b64, "AQIDBA");
+        snprintf(nw.pem, sizeof nw.pem, "-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----\n");
+        fido_cred fc[2];
+        int scr = A.scr;
+        pump_script = 4, pump_n = 0;
+        CHECK(app_register_passkey(&A, &nw) == 1 && fido_find(A.db, "example.org", fc, 2) == 0 && A.scr == scr, "register: denied, nothing saved");
+        pump_script = 3, pump_n = 0;
+        CHECK(app_register_passkey(&A, &nw) == 0 && A.scr == scr && !A.fido_active, "register: approved");
+        CHECK(fido_find(A.db, "example.org", fc, 2) == 1 && !strcmp(fc[0].user_name, "zoe") && fc[0].cred_len == 32 && fc[0].user_len == 4 &&
+                  fc[0].be && fc[0].bs, "register: found as a passkey with its fields");
+        CHECK(strstr(A.msg, "Passkey saved"), "register: toast: %s", A.msg);
+        pump_script = 0;
+        int sc = A.scr;
+        A.scr = SCR_SETTINGS;
+        CHECK(app_register_passkey(&A, &nw) == 2, "register: refused while another screen (an editor, settings) is open");
+        A.scr = sc;
+        key('l' | K_FN);
     }
 
     /* animations: cross-fade, slide-in, toast; off switch, key skips, battery/power guards */
@@ -1365,7 +1398,7 @@ int main(int argc, char **argv)
     /* large font, time not set, auto-lock */
     cfg.large_font = true;
     app_lock(&A); /* app_init starts from scratch: close the database first */
-    app_init(&A, &PLAT, &cfg);
+    APP_INIT(&A, &PLAT, &cfg);
     open_db("aes_kpxc.kdbx", "test");
     snap("37_large_home");
     select_title("Gmail");
@@ -1390,7 +1423,7 @@ int main(int argc, char **argv)
         cfg.large_font = false;
         for (int i = 0; i < 3; i++) {
             app_lock(&A);
-            app_init(&A, &PLAT, &cfg);
+            APP_INIT(&A, &PLAT, &cfg);
             open_db("aes_kpxc.kdbx", "test");
             select_title("Gmail");
             key(K_ENTER);
@@ -1445,7 +1478,7 @@ int main(int argc, char **argv)
     /* the shared progress screen: percentage, bar, elapsed time, estimate */
     {
         app_lock(&A);
-        app_init(&A, &PLAT, &cfg);
+        APP_INIT(&A, &PLAT, &cfg);
         pick_db("aes_kpxc.kdbx");
         CHECK(A.scr == SCR_UNLOCK, "unlock screen for the progress screen test");
         A.progress_t0 = 1000;
@@ -1477,7 +1510,7 @@ int main(int argc, char **argv)
         cp_settings_parse(&back, txt);
         CHECK(!back.splash, "splash=off round trip");
         sc.splash = true;
-        app_init(&A, &PLAT, &sc);
+        APP_INIT(&A, &PLAT, &sc);
         CHECK(A.scr == SCR_SPLASH, "starts on the splash");
         snap("99_splash");
         app_tick(&A, 1000);
@@ -1486,20 +1519,21 @@ int main(int argc, char **argv)
         app_tick(&A, 4100);
         CHECK(A.scr == SCR_PICKER, "timer leaves the splash");
         snap("100_after_splash");
-        app_init(&A, &PLAT, &sc);
+        APP_INIT(&A, &PLAT, &sc);
         key('x');
         CHECK(A.scr == SCR_PICKER, "a key skips the splash (and is not typed anywhere)");
         sc.splash = false;
         sc.theme = UI_THEME_DAYLIGHT;
-        app_init(&A, &PLAT, &sc);
+        APP_INIT(&A, &PLAT, &sc);
         CHECK(A.scr == SCR_PICKER, "no splash when off");
         sc.splash = true;
-        app_init(&A, &PLAT, &sc);
+        APP_INIT(&A, &PLAT, &sc);
         snap("101_splash_light");
         app_lock(&A);
     }
 
     if (ui_overflow) printf("FAIL: %d pixels drawn past the panel edge\n", ui_overflow), failures++;
     printf("render: %d screens -> %s/, %d failures\n", shots, odir, failures);
+    ap_browse_free(&A);
     return failures != 0;
 }
