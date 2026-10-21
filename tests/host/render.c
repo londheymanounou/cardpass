@@ -67,6 +67,7 @@ static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
         snprintf(out[n].name, 64, "%s", e->d_name);
         out[n].dir = S_ISDIR(st.st_mode);
         out[n].size = out[n].dir ? 0 : (uint32_t)st.st_size;
+        out[n].mtime = (int64_t)st.st_mtime;
         n++;
     }
     if (d) closedir(d);
@@ -350,6 +351,10 @@ int main(int argc, char **argv)
     remove(p);
     snprintf(p, sizeof p, "%s/newdb.keyx", wdir);
     remove(p);
+    snprintf(p, sizeof p, "%s/zz_new", wdir);
+    rmdir(p);
+    snprintf(p, sizeof p, "%s/zz_ren", wdir);
+    rmdir(p);
     snprintf(p, sizeof p, "%s/newdb2.kdbx", wdir);
     remove(p);
     snprintf(p, sizeof p, "%s/newdb2.kdbx.tmp", wdir);
@@ -480,7 +485,7 @@ int main(int argc, char **argv)
 
     /* settings */
     key(K_TAB);
-    keys(K_DOWN, 4);
+    keys(K_DOWN, 5);
     key(K_ENTER);
     snap("23_settings");
     key(K_RIGHT); /* Deep night: its contrast trade is disclosed */
@@ -495,7 +500,7 @@ int main(int argc, char **argv)
     snap("25_home_light");
     for (int on = 0; on < 2; on++) {   /* Settings -> Clock in bar (the last row): off, then back on */
         key(K_TAB);
-        keys(K_DOWN, 4);
+        keys(K_DOWN, 5);
         key(K_ENTER);
         key(K_UP);
         key(K_RIGHT);
@@ -504,14 +509,14 @@ int main(int argc, char **argv)
         if (!on) snap("25b_home_no_clock");
     }
     key(K_TAB);
-    keys(K_DOWN, 4);
+    keys(K_DOWN, 5);
     key(K_ENTER);
     key(K_RIGHT); /* back to dark */
     key('`');
 
     /* audit + expiry */
     key(K_TAB);
-    keys(K_DOWN, 2);
+    keys(K_DOWN, 3);
     key(K_ENTER);
     snap("26_audit");
     key('w');
@@ -832,7 +837,7 @@ int main(int argc, char **argv)
 
         /* groups */
         key(K_TAB);
-        keys(K_DOWN, 8);
+        keys(K_DOWN, 1);
         key(K_ENTER);
         CHECK(A.scr == SCR_GROUPS, "groups screen");
         snap("84_groups");
@@ -844,7 +849,7 @@ int main(int argc, char **argv)
         select_group("Work");
         key(K_ENTER);
         key(K_TAB);
-        keys(K_DOWN, 8);
+        keys(K_DOWN, 1);
         key(K_ENTER);
         key(K_DOWN);
         key(K_ENTER);                      /* rename */
@@ -855,7 +860,7 @@ int main(int argc, char **argv)
         select_group("Job");
         key(K_ENTER);
         key(K_TAB);
-        keys(K_DOWN, 8);
+        keys(K_DOWN, 1);
         key(K_ENTER);
         keys(K_DOWN, 2);
         key(K_ENTER);                      /* move: choose the destination */
@@ -868,7 +873,7 @@ int main(int argc, char **argv)
         select_group("Job");
         key(K_ENTER);
         key(K_TAB);
-        keys(K_DOWN, 8);
+        keys(K_DOWN, 1);
         key(K_ENTER);
         keys(K_DOWN, 3);
         key(K_ENTER);
@@ -987,7 +992,7 @@ int main(int argc, char **argv)
         /* with a database open: manual only, Wi-Fi refused */
         open_db("aes_kpxc.kdbx", "test");
         key(K_TAB);
-        keys(K_DOWN, 7);
+        keys(K_DOWN, 8);
         key(K_ENTER);
         CHECK(A.scr == SCR_TIME, "time screen while unlocked");
         key(K_DOWN);
@@ -1182,7 +1187,7 @@ int main(int argc, char **argv)
     {
         open_db("aes_kpxc.kdbx", "test");
         key(K_TAB);
-        keys(K_DOWN, 6);
+        keys(K_DOWN, 7);
         key(K_ENTER);
         snap("41_drive_confirm");
         key(K_ENTER);
@@ -1302,6 +1307,56 @@ int main(int argc, char **argv)
     CHECK(A.scr == SCR_PICKER && !A.pwlen && !A.pw[0], "fn+L on the unlock screen wipes the password");
     key('l' | K_FN);
     CHECK(A.scr == SCR_PICKER, "fn+L in the picker is harmless");
+
+    /* browser: new folder, rename, delete (fn+N, fn+R, fn+Backspace) */
+    app_lock(&A);
+    key('n' | K_FN);
+    CHECK(A.br_prompt == 1, "fn+N asks for a folder name");
+    snap("37a_browser_new_folder");
+    type("zz_new");
+    key(K_ENTER);
+    CHECK(!A.br_prompt && A.br_ents[A.sel].dir && !strcmp(A.br_ents[A.sel].name, "zz_new"), "folder created and selected: %s", A.msg);
+    snap("37b_browser_detail");
+    key('r' | K_FN);
+    CHECK(A.br_prompt == 2 && !strcmp(A.br_name, "zz_new"), "fn+R starts from the current name");
+    keys(K_BACKSPACE, 6);
+    type("zz_ren");
+    key(K_ENTER);
+    CHECK(!A.br_prompt && !strcmp(A.br_ents[A.sel].name, "zz_ren"), "renamed: %s", A.msg);
+    key('n' | K_FN);
+    type("zz_ren");
+    key(K_ENTER);
+    CHECK(A.br_prompt == 1 && strstr(A.msg, "exists"), "an existing name is refused: %s", A.msg);
+    key(K_ESC);
+    key('n' | K_FN);
+    type("bad:name");
+    key(K_ENTER);
+    CHECK(A.br_prompt == 1 && strstr(A.msg, "Invalid"), "a name FAT cannot hold is refused: %s", A.msg);
+    key(K_ESC);
+    CHECK(!A.br_prompt, "escape closes the prompt");
+    key(K_BACKSPACE | K_FN);
+    CHECK(A.br_prompt == 3, "fn+Backspace asks before deleting");
+    snap("37c_browser_delete");
+    key(K_ENTER);
+    int gone = 1;
+    for (int i = 0; i < A.br_n; i++) gone &= strcmp(A.br_ents[i].name, "zz_ren") != 0;
+    CHECK(gone && !A.br_prompt, "folder deleted: %s", A.msg);
+
+    /* five wrong passwords in a row pause unlocking, even for the right one */
+    pick_db("aes_kpxc.kdbx");
+    for (int i = 0; i < 5; i++) {
+        type("not the password");
+        key(K_ENTER);
+    }
+    CHECK(A.fails == 5 && !A.db, "five wrong passwords counted (%d)", A.fails);
+    type("test");
+    key(K_ENTER);
+    CHECK(!A.db && strstr(A.msg, "Too many"), "the right password waits too: %s", A.msg);
+    snap("37d_too_many_tries");
+    ms += 40000;                                           /* 30 s later */
+    key(K_ENTER);
+    CHECK(A.db && A.fails == 0, "after the wait it unlocks and the count resets: %s", A.msg);
+    app_lock(&A);
 
     /* large font, time not set, auto-lock */
     cfg.large_font = true;

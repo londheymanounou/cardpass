@@ -341,6 +341,12 @@ battery, saving edits (keep a backup of real databases until test files pass), d
 The lock screen / picker is the file browser itself (folders, .kdbx, other files = VeraCrypt); no separate list or "Browse SD card" row.
 "New database" (Tab menu) creates in the folder being browsed. Not yet checked on the device.
 
+## Browser operations, lockout (2026-10-21)
+Browser (picker): fn+N new folder, fn+R rename, fn+Backspace delete (files; folders only if empty); the footer shows the
+selected row's size and last-modified time. 5 wrong passwords in a row pause unlocking (30 s, doubling to 8 min; RAM only).
+fn+L locks from any screen. Argon2id in New database, weak-password warning, build id on the splash. "Groups" is second in the
+unlocked Tab menu. None of this is checked on the device yet.
+
 ## Next step
 Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
 ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),

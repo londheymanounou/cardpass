@@ -34,6 +34,7 @@ static int menu_items(app *a, int *out)
     int n = 0;
     if (a->db) {
         out[n++] = M_NEW_ENTRY;
+        out[n++] = M_GROUPS;
         out[n++] = M_GENERATOR;
         out[n++] = M_AUDIT;
         out[n++] = M_EXPIRY;
@@ -41,7 +42,6 @@ static int menu_items(app *a, int *out)
         out[n++] = M_LOCK;
         out[n++] = M_DRIVE;
         out[n++] = M_TIME;
-        out[n++] = M_GROUPS;
         out[n++] = M_ACCOUNT;
         out[n++] = M_BT;
     } else {
@@ -657,7 +657,10 @@ void ap_help_draw(app *a, ui_strip *s, const char **hint)
     static const char *const list[] = {
         "type  search (accents and case ignored)", U_UPDOWN "  move    " U_ENTER "  open", "`  back    fn+`  clear search",
         "tab  menu: new entry, generator,", "     audit, expiring, settings", "fn+L  lock now"};
-    const char *const *l = a->menu_back == SCR_ENTRY ? entry : list;
+    static const char *const browser[] = {
+        U_ENTER "  open    left  up a folder", "fn+N  new folder", "fn+R  rename", "fn+bksp  delete (empty folders only)",
+        "tab  menu: new database, settings", "fn+L  lock now (wipes everything)"};
+    const char *const *l = a->menu_back == SCR_ENTRY ? entry : a->menu_back == SCR_PICKER && a->br_mode == 1 ? browser : list;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
     for (int i = 0; i < 6; i++) ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + i * 16, l[i], T->fg, UI_W - PAD * 4);
     *hint = "any key: back";

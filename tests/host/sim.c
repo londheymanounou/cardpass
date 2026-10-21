@@ -154,6 +154,7 @@ static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
         snprintf(out[n].name, 64, "%s", fd.cFileName);
         out[n].dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         out[n].size = out[n].dir ? 0 : fd.nFileSizeLow;
+        out[n].mtime = 0;
         n++;
     } while (FindNextFileA(h, &fd));
     FindClose(h);

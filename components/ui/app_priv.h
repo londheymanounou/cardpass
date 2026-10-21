@@ -65,6 +65,8 @@ void ap_draw_row(app *a, ui_strip *s, int i, const char *icon, uint16_t icon_c, 
 void ap_draw_scrollbar(app *a, ui_strip *s, int n);
 void ap_draw_list(app *a, ui_strip *s);
 void ap_draw_toast(app *a, ui_strip *s);
+bool ap_gate(app *a);                                  /* too many wrong passwords: true (with a message) while unlocking is paused */
+void ap_gate_note(app *a, bool wrong);                 /* the result of an unlock attempt: counts wrong passwords */
 void ap_draw_field(app *a, ui_strip *s, int x, int y, int w, int h, const char *text, bool masked, int cursor);
 bool ap_totp_now(app *a, const kdbx_entry *e, const kdbx_field *f, char *out, size_t n);
 

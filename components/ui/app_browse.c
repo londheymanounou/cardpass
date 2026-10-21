@@ -4,7 +4,19 @@
  * VeraCrypt container and asks for its password; once mounted, its files are browsed under VC_ROOT the same way. */
 #include <stdlib.h>
 #include <strings.h>
+#include <sys/stat.h>
+#include <time.h>
 #include "app_priv.h"
+
+#ifdef _WIN32
+#include <direct.h>
+#define MKDIR(p) _mkdir(p)
+#define RMDIR(p) _rmdir(p)
+#else
+#define MKDIR(p) mkdir(p, 0777)
+#define RMDIR(p) rmdir(p)
+#include <unistd.h>
+#endif
 
 #define BR_MAX 160
 
@@ -22,6 +34,7 @@ static const app_dirent *ent(const app *a, int i) { return &a->br_ents[i - has_u
 
 void ap_browse_free(app *a)
 {
+    a->br_prompt = 0;
     free(a->br_ents);
     a->br_ents = NULL;
     a->br_n = 0;
@@ -106,6 +119,7 @@ void ap_vc_unlock(app *a)
     ap_wipe(a->pw, sizeof a->pw);
     a->pwlen = 0;
     ap_progress_end(a);
+    ap_gate_note(a, r == 1);
     if (r && r != 5) {
         static const char *const why[] = {"", "Wrong password / not VeraCrypt", "Can't read that file", "Needs AES + SHA-512",
                                           "No FAT inside the container"};
@@ -167,12 +181,87 @@ static bool join(char *dst, size_t n, const char *dir, const char *name)
     return w > 0 && (size_t)w < n;
 }
 
+/* ---- folder / rename / delete: a one-line prompt over the list (database browser only) ---- */
+
+static void select_name(app *a, const char *name)
+{
+    for (int i = has_up(a); i < rows(a); i++)
+        if (!strcmp(ent(a, i)->name, name)) { select_row(a, i); return; }
+}
+
+static bool valid_name(const char *s)
+{
+    if (!s[0] || s[0] == '.') return false;                       /* hidden names are not listed */
+    for (; *s; s++)
+        if (strchr("/\\:*?\"<>|", *s) || (unsigned char)*s < 32) return false;
+    return true;
+}
+
+static void prompt_open(app *a, int kind, const char *name)
+{
+    a->br_prompt = kind;
+    snprintf(a->br_name, sizeof a->br_name, "%s", name);
+    a->br_namelen = (int)strlen(a->br_name);
+}
+
+static void prompt_done(app *a)
+{
+    char from[sizeof a->keyrel], to[sizeof a->keyrel], rf[256], rt[256];
+    const char *sel = !is_up(a, a->sel) && a->br_n ? ent(a, a->sel)->name : "";
+    int kind = a->br_prompt;
+    a->br_prompt = 0;
+    if (kind == 3) {                                                  /* delete */
+        if (!join(from, sizeof from, a->br_dir, sel)) return;
+        a->p->root_path(a->p->ctx, from, rf, sizeof rf);
+        int r = ent(a, a->sel)->dir ? RMDIR(rf) : remove(rf);          /* unlink refuses folders on FAT too */
+        int keep = a->sel;
+        load(a);
+        if (r) snprintf(a->msg, sizeof a->msg, "Can't delete (not empty, or read-only)");
+        else { snprintf(a->msg, sizeof a->msg, "Deleted"); select_row(a, keep < rows(a) ? keep : rows(a) - 1 > 0 ? rows(a) - 1 : 0); }
+        return;
+    }
+    if (!valid_name(a->br_name)) { snprintf(a->msg, sizeof a->msg, "Invalid name"); a->br_prompt = kind; return; }
+    if (!join(to, sizeof to, a->br_dir, a->br_name)) { snprintf(a->msg, sizeof a->msg, "Path too long"); a->br_prompt = kind; return; }
+    a->p->root_path(a->p->ctx, to, rt, sizeof rt);
+    struct stat st;
+    if (!stat(rt, &st)) { snprintf(a->msg, sizeof a->msg, "Already exists"); a->br_prompt = kind; return; }
+    int r;
+    if (kind == 1) r = MKDIR(rt);
+    else {
+        if (!join(from, sizeof from, a->br_dir, sel)) return;
+        a->p->root_path(a->p->ctx, from, rf, sizeof rf);
+        r = rename(rf, rt);
+    }
+    load(a);
+    if (r) snprintf(a->msg, sizeof a->msg, "Failed (read-only card?)");
+    else { select_name(a, a->br_name); snprintf(a->msg, sizeof a->msg, kind == 1 ? "Folder created" : "Renamed"); }
+}
+
+static void prompt_key(app *a, uint32_t k, bool fn)
+{
+    ap_mark_all(a);
+    a->msg[0] = 0;
+    if (k == K_ESC || (k == '`' && (fn || a->br_prompt == 3))) { a->br_prompt = 0; return; }
+    if (k == K_ENTER) { prompt_done(a); return; }
+    if (a->br_prompt == 3) return;
+    if (k == K_BACKSPACE) ap_utf8_backspace(a->br_name, &a->br_namelen);
+    else if (ap_printable(k) && !fn) ap_utf8_append(a->br_name, &a->br_namelen, sizeof a->br_name, k);
+}
+
 void ap_browse_key(app *a, uint32_t k, bool fn)
 {
-    (void)fn;
+    if (a->br_prompt) { prompt_key(a, k, fn); return; }
     ap_mark_all(a);
     a->msg[0] = 0;
     int n = rows(a);
+    if (a->br_mode == 1 && fn) {                                      /* fn+N new folder, fn+R rename, fn+Backspace delete */
+        if (k == 'n' || k == 'N') { prompt_open(a, 1, ""); return; }
+        if (n && !is_up(a, a->sel)) {
+            if (k == 'r' || k == 'R') { prompt_open(a, 2, ent(a, a->sel)->name); return; }
+            if (k == K_BACKSPACE) { prompt_open(a, 3, ent(a, a->sel)->name); return; }
+        }
+        if (k == K_BACKSPACE || k == 'n' || k == 'N' || k == 'r' || k == 'R') return;   /* nothing to act on */
+    }
     if (k == K_UP && n) ap_move_sel(a, n, -1);
     else if (k == K_DOWN && n) ap_move_sel(a, n, 1);
     else if (k == K_LEFT || k == K_BACKSPACE) go_up(a);
@@ -228,6 +317,28 @@ void ap_browse_draw(app *a, ui_strip *s, const char **hint)
     }
     if (!n) ui_text(s, F, PAD * 2, CONTENT_Y + 12, "(empty folder)", T->dim, UI_W - PAD * 4);
     ap_draw_scrollbar(a, s, n);
+    if (a->br_prompt) {
+        static const char *const what[] = {"", "New folder", "Rename to", "Delete?"};
+        int by = CONTENT_Y + 14;
+        ui_fill(s, 0, by, UI_W, 62, T->bar_bg);
+        ui_text(s, &ui_font_small, PAD * 2, by + 4, what[a->br_prompt], T->dim, UI_W - PAD * 4);
+        if (a->br_prompt == 3) ui_text(s, F, PAD * 2, by + 24, a->br_name, T->warn, UI_W - PAD * 4);
+        else ap_draw_field(a, s, PAD * 2, by + 22, UI_W - PAD * 4, F->height + 6, a->br_name, false, a->br_namelen);
+        *hint = a->br_prompt == 3 ? U_ENTER " delete  ` no" : U_ENTER " ok  fn+` cancel";
+        ap_draw_toast(a, s);
+        return;
+    }
     ap_draw_toast(a, s);
-    *hint = a->br_mode ? U_ENTER " open  left: up  tab menu" : U_ENTER " open  left: up  ` cancel";
+    static char detail[64];
+    if (a->br_mode == 1 && n && !is_up(a, a->sel)) {                    /* what the selected row is: size and last change (keys: ?) */
+        const app_dirent *e = ent(a, a->sel);
+        char sz[16] = "folder", when[40] = "";
+        if (!e->dir) size_text(sz, sizeof sz, e->size);
+        time_t t = (time_t)e->mtime;
+        struct tm *tm = e->mtime > 946684800 ? gmtime(&t) : NULL;      /* FAT stamps; before 2000 = clock was never set */
+        if (tm) snprintf(when, sizeof when, "  %04d-%02d-%02d %02d:%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min);
+        snprintf(detail, sizeof detail, "%s%s", sz, when);
+        *hint = detail;
+    } else
+        *hint = a->br_mode ? U_ENTER " open  left: up  tab menu" : U_ENTER " open  left: up  ` cancel";
 }

@@ -392,8 +392,28 @@ void ap_kdf_progress(void *ctx, int pct)
     a->p->present(a->p->ctx);
 }
 
+/* Guessing on the device: after 5 wrong passwords in a row, 30 s before the next try, doubling up to 8 min. It lives in RAM,
+ * so it only slows down someone who does not power-cycle; a copy of the file on a PC is not slowed at all. */
+bool ap_gate(app *a)
+{
+    if (a->fails < 5) return false;
+    uint32_t left = a->fail_until - a->p->millis(a->p->ctx);
+    if ((int32_t)left <= 0) return false;
+    snprintf(a->msg, sizeof a->msg, "Too many tries: wait %us", (unsigned)((left + 999) / 1000));
+    ap_mark_all(a);
+    return true;
+}
+
+void ap_gate_note(app *a, bool wrong)
+{
+    if (!wrong) { a->fails = 0; return; }
+    if (a->fails < 100) a->fails++;
+    if (a->fails >= 5) a->fail_until = a->p->millis(a->p->ctx) + (30000u << (a->fails - 5 > 4 ? 4 : a->fails - 5));
+}
+
 static void unlock(app *a)
 {
+    if (ap_gate(a)) return;
     if (a->vc_pending) { ap_vc_unlock(a); return; }       /* the unlock screen is asking for a container's password */
     kdbx_key k;
     FILE *kf = NULL;
@@ -415,6 +435,7 @@ static void unlock(app *a)
     kdbx_set_progress(NULL, NULL);
     kdbx_key_wipe(&k);
     ap_progress_end(a);
+    ap_gate_note(a, e == KDBX_ERR_KEY);
     if (e) {
         snprintf(a->msg, sizeof a->msg, "%s", kdbx_strerror(e));
         ap_mark_all(a);
@@ -585,12 +606,12 @@ void app_key(app *a, uint32_t key, bool down)
      * USB drive is shared (leave it first) or a passkey is waiting for its confirmation */
     if (fn && (k == 'l' || k == 'L') && a->scr != SCR_DRIVE && !a->fido_active) { app_lock(a); return; }
     if (a->scr == SCR_DRIVE) { ap_drive_key(a, k, fn); return; }   /* nothing else is reachable in drive mode */
-    if (k == K_TAB && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
+    if (k == K_TAB && !a->br_prompt && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
                        a->scr == SCR_ENTRY)) {
         ap_menu_open(a);
         return;
     }
-    if (k == '?' && a->scr != SCR_UNLOCK && a->scr != SCR_EDIT && a->scr != SCR_SEARCH && a->scr != SCR_CREATE &&
+    if (k == '?' && !a->br_prompt && a->scr != SCR_UNLOCK && a->scr != SCR_EDIT && a->scr != SCR_SEARCH && a->scr != SCR_CREATE &&
         a->scr != SCR_HELP && a->scr != SCR_QR && a->scr != SCR_FIDO) {
         a->menu_back = a->scr;
         a->scr = SCR_HELP;

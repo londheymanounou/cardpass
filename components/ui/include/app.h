@@ -27,7 +27,7 @@ enum { BT_OFF = 0, BT_ADVERTISING, BT_PAIR_CONFIRM, BT_CONNECTED };
 enum { NTP_OK = 0, NTP_ERR_CONNECT = 1, NTP_ERR_PASSWORD = 2, NTP_ERR_SERVER = 3, NTP_ERR_BAD_TIME = 4 };
 
 #define VC_ROOT "@vc"   /* browser folder of the mounted VeraCrypt container */
-typedef struct { char name[64]; bool dir; uint32_t size; } app_dirent;   /* one entry of the file browser */
+typedef struct { char name[64]; bool dir; uint32_t size; int64_t mtime; } app_dirent;   /* one entry of the file browser */
 
 typedef struct {
     /* Names of files in the database folder ending with ext (".kdbx", ".keyx", ".key"). */
@@ -128,6 +128,11 @@ typedef struct {
     char vc_rel[160];          /* the container chosen, relative to the SD root */
     app_dirent *br_ents;       /* its entries, malloc'd while the browser is open */
     int br_n;
+    int br_prompt;             /* browser: 0 none, 1 new folder, 2 rename, 3 delete? (a one-line prompt over the list) */
+    char br_name[64];
+    int br_namelen;
+    int fails;                 /* wrong passwords in a row since the last good unlock (RAM only: a reboot resets it) */
+    uint32_t fail_until;       /* millis: no unlock attempts before this once `fails` is 5 or more */
     bool pw_show;              /* the eye: show typed passwords; reset whenever the screen changes */
     int pw_show_scr;
     char query_prev[64];       /* the query the current hits are for (typing narrows them) */

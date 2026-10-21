@@ -102,6 +102,7 @@ static int list_dir(void *ctx, const char *rel, app_dirent *out, int max)
         memcpy(out[n].name, e->d_name, l + 1);
         out[n].dir = S_ISDIR(st.st_mode);
         out[n].size = out[n].dir ? 0 : (uint32_t)st.st_size;
+        out[n].mtime = (int64_t)st.st_mtime;
         n++;
     }
     if (d) closedir(d);
