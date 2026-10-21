@@ -181,9 +181,11 @@ void ap_fido_draw(app *a, ui_strip *s, const char **hint)
         if (!rf || kdbx_reveal(a->db, rf, old, sizeof old)) old[0] = 0;
         ui_text(s, F, PAD * 2, CONTENT_Y + 4, "Replace its passkey?", T->warn, UI_W - PAD * 4);
         ui_text(s, F, PAD * 2, CONTENT_Y + 4 + F->height + 4, a->fwarn->title, T->fg, UI_W - PAD * 4);
-        snprintf(line, sizeof line, "It holds one for %s", old[0] ? old : "another site");
-        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 10, line, T->dim, UI_W - PAD * 4);
-        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 24, "The old one stays in the entry's history.", T->dim, UI_W - PAD * 4);
+        snprintf(line, sizeof line, "User: %s", a->fwarn->username[0] ? a->fwarn->username : "(none)");
+        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 8, line, T->fg, UI_W - PAD * 4);
+        snprintf(line, sizeof line, "It holds a passkey for %s", old[0] ? old : "another site");
+        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 22, line, T->dim, UI_W - PAD * 4);
+        ui_text(s, &ui_font_small, PAD * 2, CONTENT_Y + 4 + 2 * F->height + 36, "The old one stays in its history.", T->dim, UI_W - PAD * 4);
         *hint = U_ENTER " replace  ` back";
         return;
     }
@@ -202,9 +204,14 @@ void ap_fido_draw(app *a, ui_strip *s, const char **hint)
             const kdbx_entry *e = i && !(a->fother && i == rows - 1) ? a->flist[i - 1] : NULL;
             const char *name = i == 0 ? "New entry" : e ? e->title : "Other entry...";
             int x = PAD * 2 + ui_text(s, F, PAD * 2, y + (h - F->height) / 2, icon, i == 0 ? T->accent : T->dim, 16) + 4;
+            /* from the right: "passkey" (an entry that has one), then the user name: entries often share a title */
             int tag = e && has_passkey(e) ? ui_text_width(&ui_font_small, "passkey") + 6 : 0;
-            ui_text(s, F, x, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, UI_W - x - PAD - tag);
-            if (tag) ui_text(s, &ui_font_small, UI_W - PAD - tag + 6, y + (h - ui_font_small.height) / 2, "passkey", sel ? T->sel_fg : T->warn, tag);
+            int uw = e && e->username[0] ? ui_text_width(&ui_font_small, e->username) + 6 : 0;
+            if (uw > 120) uw = 120;
+            ui_text(s, F, x, y + (h - F->height) / 2, name, sel ? T->sel_fg : T->fg, UI_W - x - PAD - tag - uw);
+            int sy = y + (h - ui_font_small.height) / 2;
+            if (uw) ui_text(s, &ui_font_small, UI_W - PAD - tag - uw + 6, sy, e->username, sel ? T->sel_fg : T->dim, uw - 6);
+            if (tag) ui_text(s, &ui_font_small, UI_W - PAD - tag + 6, sy, "passkey", sel ? T->sel_fg : T->warn, tag - 6);
         }
         *hint = U_UPDOWN " choose  " U_ENTER " save  ` deny";
         return;
