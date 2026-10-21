@@ -238,6 +238,12 @@ static void pump_fn(void *c)
     if (pump_script == 2 && pump_n == 2) key('`');
     if (pump_script == 3 && pump_n == 2) { snap("40b_passkey_register"); key(K_ENTER); }
     if (pump_script == 4 && pump_n == 2) key('`');
+    if (pump_script == 5 && pump_n == 2) { snap("40c_passkey_register_existing"); key(K_DOWN); }
+    if (pump_script == 5 && pump_n == 3) key(K_ENTER);
+    if (pump_script == 6 && pump_n == 2) key(K_DOWN);                      /* "Other entry..." */
+    if (pump_script == 6 && pump_n == 3) key(K_ENTER);                     /* every entry is listed now */
+    if (pump_script == 6 && pump_n == 4) { snap("40d_passkey_register_all"); key(K_DOWN); }
+    if (pump_script == 6 && pump_n == 5) key(K_ENTER);
 }
 
 static void key(uint32_t k) { app_key(&A, k, true); app_key(&A, k, false); }
@@ -591,6 +597,65 @@ int main(int argc, char **argv)
         A.scr = SCR_SETTINGS;
         CHECK(app_register_passkey(&A, &nw) == 2, "register: refused while another screen (an editor, settings) is open");
         A.scr = sc;
+        key('l' | K_FN);
+    }
+
+    /* a passkey added to an existing entry: its other fields stay exactly as they were */
+    {
+        open_db("aes_kpxc.kdbx", "test");
+        char before[256] = "", after[256] = "", url0[256] = "", user0[128] = "";
+        const kdbx_entry *g = NULL;
+        int nent = 0;
+        for (const kdbx_entry *e = kdbx_entries(A.db); e; e = e->next) {
+            nent++;
+            if (!strcmp(e->title, "Gmail")) g = e;
+        }
+        CHECK(g && !kdbx_reveal(A.db, kdbx_field_get(g, "Password"), before, sizeof before) && before[0], "the Gmail entry has a password");
+        if (g) snprintf(url0, sizeof url0, "%s", g->url), snprintf(user0, sizeof user0, "%s", g->username);
+        fido_new nw = {0};
+        snprintf(nw.rp_id, sizeof nw.rp_id, "mail.google.com");
+        snprintf(nw.rp_name, sizeof nw.rp_name, "Google");
+        snprintf(nw.user_name, sizeof nw.user_name, "alice@gmail.com");
+        snprintf(nw.cred_b64, sizeof nw.cred_b64, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        snprintf(nw.user_b64, sizeof nw.user_b64, "AQIDBA");
+        snprintf(nw.pem, sizeof nw.pem, "-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----\n");
+        pump_script = 5, pump_n = 0;
+        CHECK(app_register_passkey(&A, &nw) == 0 && strstr(A.msg, "added to Gmail"), "add to the suggested entry: %s", A.msg);
+        pump_script = 0;
+        fido_cred fc[2];
+        int cnt = 0;
+        const kdbx_entry *g2 = NULL;
+        for (const kdbx_entry *e = kdbx_entries(A.db); e; e = e->next) {
+            cnt++;
+            if (!strcmp(e->title, "Gmail")) g2 = e;
+        }
+        CHECK(cnt == nent && g2 && fido_find(A.db, "mail.google.com", fc, 2) == 1 && fc[0].e == g2 && !strcmp(fc[0].user_name, "alice@gmail.com"),
+              "the passkey is on the Gmail entry, no new entry (%d / %d)", cnt, nent);
+        CHECK(g2 && !kdbx_reveal(A.db, kdbx_field_get(g2, "Password"), after, sizeof after) && !strcmp(before, after) &&
+                  !strcmp(g2->username, user0) && !strcmp(g2->url, url0), "its password, user name and URL are untouched");
+
+        /* no suggestion: "Other entry..." lists every entry; take the second one that can hold a passkey */
+        const kdbx_entry *want = NULL;
+        int seen = 0;
+        for (const kdbx_entry *e = kdbx_entries(A.db); e && !want; e = e->next)
+            if (!kdbx_field_get(e, "KPEX_PASSKEY_PRIVATE_KEY_PEM") && e->group != kdbx_recycle_bin(A.db) && ++seen == 2) want = e;
+        char want_title[128] = "", want_pw[256] = "", got_pw[256] = "";
+        if (want) {
+            snprintf(want_title, sizeof want_title, "%s", want->title);
+            kdbx_reveal(A.db, kdbx_field_get(want, "Password"), want_pw, sizeof want_pw);
+        }
+        snprintf(nw.rp_id, sizeof nw.rp_id, "nomatch.example");
+        snprintf(nw.rp_name, sizeof nw.rp_name, "Nomatch");
+        pump_script = 6, pump_n = 0;
+        CHECK(want && app_register_passkey(&A, &nw) == 0, "add to an entry picked from the full list");
+        pump_script = 0;
+        const kdbx_entry *w2 = NULL;
+        for (const kdbx_entry *e = kdbx_entries(A.db); e; e = e->next)
+            if (!strcmp(e->title, want_title)) w2 = e;
+        CHECK(fido_find(A.db, "nomatch.example", fc, 2) == 1 && w2 && fc[0].e == w2, "the passkey is on %s", want_title);
+        CHECK(w2 && !kdbx_reveal(A.db, kdbx_field_get(w2, "Password"), got_pw, sizeof got_pw) && !strcmp(want_pw, got_pw), "that entry's password is untouched");
+        /* an entry that already has a passkey is never offered: only the new-entry row remains for that site's entries */
+        ap_wipe(before, sizeof before); ap_wipe(after, sizeof after); ap_wipe(want_pw, sizeof want_pw); ap_wipe(got_pw, sizeof got_pw);
         key('l' | K_FN);
     }
 

@@ -222,6 +222,50 @@ bool ap_entry_key(app *a, uint32_t k, bool fn)
     return true;
 }
 
+/* Adds a registered passkey to an existing entry: every field is carried over unchanged (nothing is cut, a value too long
+ * for a buffer aborts instead of being blanked), then the passkey fields are appended. */
+static char *dup_n(const char *s, size_t n)
+{
+    char *d = malloc(n + 1);
+    if (d) memcpy(d, s, n), d[n] = 0;
+    return d;
+}
+
+bool ap_add_passkey(app *a, const kdbx_entry *e, const fido_new *nw)
+{
+    const struct { const char *k, *v; bool prot; } add[] = {
+        {"KPEX_PASSKEY_CREDENTIAL_ID", nw->cred_b64, false}, {"KPEX_PASSKEY_PRIVATE_KEY_PEM", nw->pem, true},
+        {"KPEX_PASSKEY_RELYING_PARTY", nw->rp_id, false}, {"KPEX_PASSKEY_USERNAME", nw->user_name, false},
+        {"KPEX_PASSKEY_USER_HANDLE", nw->user_b64, false}, {"KPEX_PASSKEY_FLAG_BE", "1", false}, {"KPEX_PASSKEY_FLAG_BS", "1", false}};
+    size_t na = sizeof add / sizeof *add, cap = e->nfields + na, n = 0;
+    kdbx_edit_field *f = calloc(cap, sizeof *f);
+    char **keys = calloc(cap, sizeof *keys), **vals = calloc(cap, sizeof *vals);
+    char *tags = dup_n(e->tags, strlen(e->tags));
+    bool ok = f && keys && vals && tags;
+    for (size_t i = 0; ok && i < e->nfields; i++) {
+        const kdbx_field *x = &e->fields[i];
+        if (!strncmp(x->key, "KPEX_PASSKEY_", 13) || !strncmp(x->key, "KPXC_PASSKEY_", 13)) continue;
+        keys[n] = dup_n(x->key, strlen(x->key));
+        vals[n] = malloc((size_t)x->len + 1);
+        ok = keys[n] && vals[n] && !kdbx_reveal(a->db, x, vals[n], (size_t)x->len + 1);
+        f[n] = (kdbx_edit_field){keys[n], vals[n], x->stream_off != KDBX_PLAIN};
+        n++;
+    }
+    if (ok) {
+        for (size_t i = 0; i < na; i++) f[n++] = (kdbx_edit_field){add[i].k, add[i].v, add[i].prot};
+        kdbx_edit ed = {.op = KDBX_EDIT_ENTRY, .fields = f, .nfields = n, .tags = tags, .expires = e->expires, .expiry = e->expiry};
+        memcpy(ed.uuid, e->uuid, 16);
+        if (e->group) memcpy(ed.parent, e->group->uuid, 16);
+        ok = ap_save(a, &ed, 1);                                   /* frees the index the entry pointers lived in */
+    }
+    for (size_t i = 0; keys && vals && i < cap - na; i++) {
+        free(keys[i]);
+        if (vals[i]) ap_wipe(vals[i], strlen(vals[i])), free(vals[i]);
+    }
+    free(f); free(keys); free(vals); free(tags);
+    return ok;
+}
+
 /* ======================= entry editor ======================= */
 
 #define ED_MAX 24

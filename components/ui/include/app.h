@@ -183,6 +183,9 @@ typedef struct {
     size_t nfcreds;
     char frp[64];
     const fido_new *fnew;      /* a passkey registration is waiting for the user (else a sign-in: fcreds) */
+    const kdbx_entry **flist;  /* registration: entries the passkey could be added to (row 1..nflist; row 0 = a new entry) */
+    int nflist, fother;        /* fother: a last row "Other entry..." lists every entry */
+    const kdbx_entry *fchosen; /* the decision: NULL = a new entry */
     int fdecision;             /* 0 pending, n > 0: creds[n-1] approved, -1 denied */
     bool fido_active;
 

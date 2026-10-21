@@ -355,6 +355,8 @@ KeePassXC's KPEX_PASSKEY_* fields (flags BE/BS = 1, PKCS#8 PEM) after an Enter o
 browsing screen (home/group/search/entry). Tested: test_fido (authData/COSE layout, PEM loads in OpenSSL, signs for the COSE
 key, exclude list, declined/failed/locked), render (confirm screen, entry saved, found by fido_find, pykeepass reads it).
 Not yet checked on the device or with a real site.
+The confirmation lists "New entry", suggested entries (URL contains the site, or title matches its name) and "Other entry..." (every
+entry without a passkey); adding to an existing entry rewrites it with all its fields carried over (ap_add_passkey).
 
 ## Next step
 Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,

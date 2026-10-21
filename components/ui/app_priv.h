@@ -72,6 +72,7 @@ bool ap_totp_now(app *a, const kdbx_entry *e, const kdbx_field *f, char *out, si
 
 /* app_edit.c */
 bool ap_entry_key(app *a, uint32_t k, bool fn);     /* entry-view actions; true if handled */
+bool ap_add_passkey(app *a, const kdbx_entry *e, const fido_new *n);   /* adds the passkey fields to an existing entry */
 bool ap_save(app *a, const kdbx_edit *ed, size_t n);/* save + re-find everything by UUID */
 bool ap_save_ex(app *a, const kdbx_edit *ed, size_t n, const kdbx_key *newkey, uint64_t rounds);
 uint64_t ap_benchmark_rounds(app *a, int seconds);   /* AES-KDF rounds for a target unlock time */
