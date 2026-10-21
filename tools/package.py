@@ -34,5 +34,8 @@ subprocess.run(cmd, check=True, capture_output=True)
 
 size = app.stat().st_size
 print(f"app image     {size:>9,} B  ({size * 100 / APP_PART:.1f}% of the {APP_PART:,} B app partition)")
+data = app.read_bytes()
+assert int.from_bytes(data[32:36], "little") == 0xABCD5432, "no app descriptor where expected"
+print(f"build id      {data[32 + 144:32 + 144 + 32].hex()[:8]}  (shown on the splash screen)")
 print(f"launcher      {DIST / 'CardPass.bin'}")
 print(f"M5Burner/full {DIST / 'CardPass-full.bin'}  ({(DIST / 'CardPass-full.bin').stat().st_size:,} B)")

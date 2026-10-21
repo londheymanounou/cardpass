@@ -431,6 +431,7 @@ struct app_create {
     int cipher;       /* KDBX_AES256 / KDBX_CHACHA20 */
     int seconds;      /* unlock-time target */
     bool argon2;      /* Argon2id instead of AES-KDF */
+    bool weak_ack;    /* the weak-password warning was shown for this password: a second Create keeps it */
     int mem_mib;      /* Argon2 memory */
     bool keyfile;
     bool editing;
@@ -492,6 +493,12 @@ static void do_create(app *a)
     if (!c->name[0] || strchr(c->name, '/') || strchr(c->name, '\\')) { snprintf(a->msg, sizeof a->msg, "Invalid name"); return; }
     if (strcmp(c->pw, c->pw2)) { snprintf(a->msg, sizeof a->msg, "Passwords differ"); return; }
     if (!c->pw[0] && !c->keyfile) { snprintf(a->msg, sizeof a->msg, "Set a password or a key file"); return; }
+    double bits = c->pw[0] ? strength_bits(c->pw) : 0;
+    if (c->pw[0] && bits < a->cfg.weak_bits && !c->weak_ack) {       /* a copy of this file can be cracked offline: say so once */
+        c->weak_ack = true;
+        snprintf(a->msg, sizeof a->msg, "Weak: ~%.0f bits. Create again to keep it", bits);
+        return;
+    }
 
     char file[64], kfile[64], kpath[256], rel[sizeof c->dir + 64];
     snprintf(file, sizeof file, "%s.kdbx", c->name);
@@ -570,6 +577,7 @@ void ap_create_key(app *a, uint32_t k, bool fn)
     char *b = create_buf(c, a->sel, &cap);
     if (c->editing && b) {
         int len = (int)strlen(b);
+        c->weak_ack = false;                       /* the password may have changed */
         if (k == K_ENTER) c->editing = false, ap_move_sel(a, C_COUNT, 1);
         else if (k == K_ESC) c->editing = false;
         else if (k == K_BACKSPACE) ap_utf8_backspace(b, &len);
@@ -630,8 +638,13 @@ void ap_create_draw(app *a, ui_strip *s, const char **hint)
         else if (b) ui_text(s, F, 66, y + (h - F->height) / 2, i == C_NAME ? b : b[0] ? U_BULLETS : "\xE2\x80\x94", sel ? T->sel_fg : T->fg, UI_W - 70);
         else ui_text(s, F, 66, y + (h - F->height) / 2, v, sel ? T->sel_fg : T->fg, UI_W - 70);
     }
+    static char strength[40];
     if (a->msg[0]) *hint = a->msg;
-    else *hint = c->editing ? U_ENTER " next  fn+` stop" : U_ENTER " edit/choose  ` cancel";
+    else if (a->sel == C_PW && c->pw[0]) {                                     /* live: how long the master password would hold */
+        double b = strength_bits(c->pw);
+        snprintf(strength, sizeof strength, "%s: ~%.0f bits", b < a->cfg.weak_bits ? "Weak" : "Strong", b);
+        *hint = strength;
+    } else *hint = c->editing ? U_ENTER " next  fn+` stop" : U_ENTER " edit/choose  ` cancel";
 }
 
 /* ======================= help ======================= */

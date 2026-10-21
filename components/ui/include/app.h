@@ -5,6 +5,8 @@
  *   while (app_dirty(&a, &y0, &y1)) for each strip in [y0, y1): app_draw(&a, &strip); push
  */
 #pragma once
+
+extern const char *cp_build_id;   /* shown on the splash screen; the firmware sets it to the image hash's first digits */
 #include <stdbool.h>
 #include <stdint.h>
 #include "fido.h"

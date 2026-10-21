@@ -4,6 +4,8 @@
 
 #define SPLASH_MS 3000u
 
+const char *cp_build_id = "dev";   /* the firmware sets it to the first hex digits of the image's hash at start-up */
+
 /* The logo is a pre-baked sprite (tools/gen_logo.py -> logo_data.c): three 4-bit coverage layers (card, outline,
  * key) in flash. Drawing is table lookups: card over background and outline over that come from one 16x16 colour
  * table built per theme, the key (a few hundred pixels) blends on top. No maths per pixel, no RAM for the image. */
@@ -46,6 +48,9 @@ void ap_splash_draw(app *a, ui_strip *s)
     const char *name = "CardPass";
     int w = ui_text_width(f, name), y = 108;
     if (y + f->height > s->y0 && y < s->y0 + s->h) ui_text(s, f, (UI_W - w) / 2, y, name, t->fg, UI_W);
+    const ui_font *sm = &ui_font_small;
+    int bw = ui_text_width(sm, cp_build_id), by = UI_H - sm->height - 2;   /* build id, bottom-right: compare with `tools/package.py` */
+    if (by + sm->height > s->y0 && by < s->y0 + s->h) ui_text(s, sm, UI_W - bw - PAD, by, cp_build_id, t->dim, bw + 1);
     (void)a;
 }
 

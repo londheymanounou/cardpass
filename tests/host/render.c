@@ -350,6 +350,10 @@ int main(int argc, char **argv)
     remove(p);
     snprintf(p, sizeof p, "%s/newdb.keyx", wdir);
     remove(p);
+    snprintf(p, sizeof p, "%s/newdb2.kdbx", wdir);
+    remove(p);
+    snprintf(p, sizeof p, "%s/newdb2.kdbx.tmp", wdir);
+    remove(p);
     cp_settings cfg;
     cp_settings_default(&cfg);
     cfg.tz_minutes = 120;
@@ -1260,6 +1264,9 @@ int main(int argc, char **argv)
     key(K_ENTER); /* generate key file */
     snap("35_create");
     key(K_DOWN);
+    key(K_ENTER);                                          /* the first Create warns that "créé 1" is weak */
+    CHECK(A.scr == SCR_CREATE && strstr(A.msg, "Weak"), "weak password warned: %s", A.msg);
+    snap("35a_create_weak");
     key(K_ENTER);
     snap("36_created_home");
     CHECK(A.db && !strcmp(A.dbname, "newdb.kdbx"), "created: %s", A.msg);
@@ -1283,6 +1290,7 @@ int main(int argc, char **argv)
     snap("35b_create_argon2");
     keys(K_DOWN, 3);
     key(K_ENTER);
+    key(K_ENTER);                                          /* weak password: confirmed */
     CHECK(A.db && !strcmp(A.dbname, "newdb2.kdbx"), "created with Argon2id: %s", A.msg);
 
     /* large font, time not set, auto-lock */

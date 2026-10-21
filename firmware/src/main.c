@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "app.h"
+#include "esp_app_desc.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -284,6 +285,9 @@ void app_main(void)
     hw_power_init();
     MARK("power");
 
+    static char build_id[9];
+    esp_app_get_elf_sha256(build_id, sizeof build_id);   /* same value as `python tools/package.py` prints */
+    cp_build_id = build_id;
     app_init(&A, &PLATFORM, &cfg);
     MARK("app_init");
     present(NULL);
