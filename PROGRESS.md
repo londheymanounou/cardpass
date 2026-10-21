@@ -310,6 +310,7 @@ Fixed from device reports:
 - UX: ; , . / are arrows without fn (Settings -> Arrows), fn+E reveals on the entry view, "Keyboard" setting
   renamed "PC layout".
 Passkeys: signing in to GitHub over USB worked on the device (2026-10-21; tested by the owner).
+It needed two Enter presses (browsers send a silent up=false probe first); silent probes are now answered without a prompt: one press (confirmed by the owner).
 Still unchecked on the device: BLE reconnect after the fix, USB drive mode, clock/Wi-Fi, power/dim,
 battery, saving edits (keep a backup of real databases until test files pass), docs/first-hardware.md numbers.
 
