@@ -1388,9 +1388,9 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, s
     bool freed = false, committed = false;
     size_t pl = strlen(path);
     char *tmp = malloc(pl + 5), *bak = malloc(pl + 5);
-    saver *s = calloc(1, sizeof *s);
-    out_t *o = calloc(1, sizeof *o);
-    kdbx_header *h = malloc(sizeof *h), *nh = malloc(sizeof *nh);
+    saver *s = NULL;            /* the big buffers are allocated after the index is freed: they never coexist with it */
+    out_t *o = NULL;
+    kdbx_header *h = NULL, *nh = NULL;
     bool *appl = calloc(nedits + 1, sizeof *appl);
     tbuf *cap = calloc(nedits + 1, sizeof *cap);
     int *capd = calloc(nedits + 1, sizeof *capd);
@@ -1399,8 +1399,7 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, s
     bool renaming = false;
     kdbx_err err = KDBX_ERR_NOMEM;
 
-    if (o) out_init(o);
-    if (!tmp || !bak || !s || !o || !h || !nh || !appl || !cap || !capd) goto done;
+    if (!tmp || !bak || !appl || !cap || !capd) goto done;
     if (!valid_edits(db, edits_in, nedits, rounds, newkey)) { err = KDBX_ERR_EDIT; goto done; }
     if (!(edits = edits_dup(edits_in, nedits, &esz))) goto done;
     memcpy(tk, db->transformed, 32);
@@ -1408,6 +1407,12 @@ kdbx_err kdbx_save(kdbx_db **dbp, const char *path, const kdbx_edit *edits_in, s
     *dbp = NULL;
     db = NULL;
     freed = true;
+    s = calloc(1, sizeof *s);
+    o = calloc(1, sizeof *o);
+    h = malloc(sizeof *h);
+    nh = malloc(sizeof *nh);
+    if (!s || !o || !h || !nh) goto done;
+    out_init(o);
     snprintf(tmp, pl + 5, "%s.tmp", path);
     snprintf(bak, pl + 5, "%s.bak", path);
 

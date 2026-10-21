@@ -6,6 +6,7 @@
  */
 #pragma once
 
+extern void (*cp_heap_stats)(size_t *free_bytes, size_t *largest_block);   /* the firmware's heap numbers, shown when a save runs out of memory */
 extern const char *cp_build_id;   /* shown on the splash screen; the firmware sets it to the image hash's first digits */
 #include <stdbool.h>
 #include <stdint.h>

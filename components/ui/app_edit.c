@@ -79,6 +79,18 @@ const kdbx_group *ap_find_group(const kdbx_db *db, const uint8_t u[16])
 
 bool ap_save(app *a, const kdbx_edit *ed, size_t n) { return ap_save_ex(a, ed, n, NULL, 0); }
 
+/* "Not saved: ..." with the heap numbers when the cause is memory (so a failure on the device says how much was free). */
+static void not_saved(app *a, kdbx_err e, const char *tail)
+{
+    size_t fr = 0, big = 0;
+    if (e == KDBX_ERR_NOMEM && cp_heap_stats) {
+        cp_heap_stats(&fr, &big);
+        snprintf(a->msg, sizeof a->msg, "Not saved: no memory (%uK free, %uK block)", (unsigned)(fr / 1024), (unsigned)(big / 1024));
+    } else {
+        snprintf(a->msg, sizeof a->msg, "Not saved: %s%s", kdbx_strerror(e), tail);
+    }
+}
+
 bool ap_save_ex(app *a, const kdbx_edit *ed, size_t n, const kdbx_key *newkey, uint64_t rounds)
 {
     uint8_t eu[16] = {0}, gu[16] = {0}, ru[APP_RECENT][16];
@@ -98,11 +110,12 @@ bool ap_save_ex(app *a, const kdbx_edit *ed, size_t n, const kdbx_key *newkey, u
     ap_progress_end(a);
     if (!a->db) { /* the index is freed during a save: it did not fit again, start over */
         app_lock(a);
-        snprintf(a->msg, sizeof a->msg, !e || e == KDBX_ERR_REINDEX ? "Saved. Out of memory: unlock again" : "Not saved: %s. Unlock again", kdbx_strerror(e));
+        if (!e || e == KDBX_ERR_REINDEX) snprintf(a->msg, sizeof a->msg, "Saved. Out of memory: unlock again");
+        else not_saved(a, e, ". Unlock again");
         return false;
     }
     if (e) {
-        snprintf(a->msg, sizeof a->msg, "Not saved: %s", kdbx_strerror(e));
+        not_saved(a, e, "");
         ap_mark_all(a);
         return false;
     }

@@ -98,7 +98,29 @@ static void bt_stop_fn(void *c) { (void)c; }
 static int bt_state_fn(void *c, uint32_t *code) { (void)c; if (code) *code = 0; return BT_OFF; }
 static void bt_answer_fn(void *c, bool ok) { (void)c; (void)ok; }
 static void bt_forget_fn(void *c) { (void)c; }
-static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max) { (void)c; (void)rel; (void)out; (void)max; return 0; }
+static int list_dir_fn(void *c, const char *rel, app_dirent *out, int max)
+{
+    (void)c;
+    char dir[600];
+    snprintf(dir, sizeof dir, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel);
+    DIR *d = opendir(dir);
+    int n = 0;
+    struct dirent *e;
+    while (d && (e = readdir(d)) && n < max) {
+        char full[900];
+        struct stat st;
+        if (e->d_name[0] == '.' || strlen(e->d_name) >= 64) continue;
+        snprintf(full, sizeof full, "%s/%s", dir, e->d_name);
+        if (stat(full, &st)) continue;
+        snprintf(out[n].name, 64, "%s", e->d_name);
+        out[n].dir = S_ISDIR(st.st_mode);
+        out[n].size = out[n].dir ? 0 : (uint32_t)st.st_size;
+        out[n].mtime = (int64_t)st.st_mtime;
+        n++;
+    }
+    if (d) closedir(d);
+    return n;
+}
 static void root_path_fn(void *c, const char *rel, char *out, size_t n) { (void)c; snprintf(out, n, rel[0] ? "%s/%s" : "%s%.0s", wdir, rel); }
 static void start_dir_fn(void *c, char *out, size_t n) { (void)c; if (n) out[0] = 0; }
 static const app_platform PLAT = {list_files, path_fn, now_fn, millis_fn, battery, hid_ready, stroke, delay_fn, save_settings, present,
@@ -298,10 +320,25 @@ static void select_kind(int kind)
     for (int i = 0; i < 40 && !(A.nrows && A.rows[A.sel].kind == kind); i++) key(K_DOWN);
 }
 
+/* The picker is the card browser: select a file of the folder by name and open it. */
+static void pick_db(const char *name)
+{
+    if (!A.br_ents || !A.br_mode) ap_browse_open_db(&A, false);
+    int r = -1;
+    for (int i = 0; i < A.br_n; i++) {
+        /* ap_browse_open_db sorts folders first; the list is sorted in place, so the row is the index */
+        if (!strcmp(A.br_ents[i].name, name)) r = i;
+    }
+    CHECK(r >= 0, "%s is listed", name);
+    for (int i = 0; i < A.sel; i++) key(K_UP);
+    for (int i = 0; i < r; i++) key(K_DOWN);
+    key(K_ENTER);
+}
+
 static void open_vault(const char *pw)
 {
     app_lock(&A);
-    key(K_ENTER);                                          /* the only database */
+    pick_db("vault.kdbx");
     feed(pw);
     key(K_ENTER);
 }
@@ -474,8 +511,7 @@ int main(int argc, char **argv)
             if (mode == 0) kdbx_set_argon2_memory((size_t)-1, NULL, 0);
             else kdbx_set_argon2_memory(0, swp, 32 * 1024);
             app_lock(&A);
-            for (int i = 0; i < 8 && strcmp(A.dbs[A.sel], "zz_argon2.kdbx"); i++) key(K_DOWN);
-            key(K_ENTER);
+            pick_db("zz_argon2.kdbx");
             feed("test");
             key(K_ENTER);
             CHECK(A.db, "Argon2 unlock (%s): %s", mode ? "swap" : "RAM", A.msg);

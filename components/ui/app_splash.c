@@ -4,6 +4,7 @@
 
 #define SPLASH_MS 3000u
 
+void (*cp_heap_stats)(size_t *free_bytes, size_t *largest_block) = NULL;
 const char *cp_build_id = "dev";   /* the firmware sets it to the first hex digits of the image's hash at start-up */
 
 /* The logo is a pre-baked sprite (tools/gen_logo.py -> logo_data.c): three 4-bit coverage layers (card, outline,

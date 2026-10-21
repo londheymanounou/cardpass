@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include "app.h"
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -159,6 +160,12 @@ static void present(void *ctx)
     vTaskDelay(1); /* 1 ms: let the idle task and watchdog run during long operations (KDF, save) */
 }
 
+static void heap_stats(size_t *fr, size_t *largest)
+{
+    *fr = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    *largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+}
+
 static void on_key(uint32_t key, bool down) { app_key(&A, key, down); }
 bool hw_keys_fn_arrows(void) { return A.cfg.fn_arrows; }
 
@@ -298,6 +305,7 @@ void app_main(void)
     static char build_id[9];
     esp_app_get_elf_sha256(build_id, sizeof build_id);   /* same value as `python tools/package.py` prints */
     cp_build_id = build_id;
+    cp_heap_stats = heap_stats;
     app_init(&A, &PLATFORM, &cfg);
     MARK("app_init");
     present(NULL);
