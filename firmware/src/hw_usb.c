@@ -67,7 +67,15 @@ static const uint8_t msc_config_desc[] = {
     TUD_MSC_DESCRIPTOR(0, 4, 0x01, 0x81, 64),
 };
 _Static_assert(sizeof msc_config_desc == TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN, "drive config descriptor length");
-static const char *msc_strings[] = {(const char[]){0x09, 0x04}, "CardPass", "CardPass drive", "000001", "CardPass SD card"};
+/* A different product ID and serial than the keyboard/security-key mode: Windows remembers a device by VID/PID/serial, and
+ * would keep the old composite (HID) interface list for a device whose descriptors changed. Espressif's VID, a PID next to
+ * the esp_tinyusb default range. */
+static const tusb_desc_device_t msc_device = {
+    .bLength = sizeof(tusb_desc_device_t), .bDescriptorType = TUSB_DESC_DEVICE, .bcdUSB = 0x0200, .bDeviceClass = 0,
+    .bDeviceSubClass = 0, .bDeviceProtocol = 0, .bMaxPacketSize0 = 64, .idVendor = 0x303A, .idProduct = 0x4F01,
+    .bcdDevice = 0x0100, .iManufacturer = 1, .iProduct = 2, .iSerialNumber = 3, .bNumConfigurations = 1};
+static const char *msc_strings[] = {(const char[]){0x09, 0x04}, "CardPass", "CardPass drive", "000002", "CardPass SD card"};
+#define REENUM_MS 800   /* the port stays detached this long so the PC notices the old device is gone */
 
 bool hw_usb_drive(bool enter)
 {
@@ -76,9 +84,10 @@ bool hw_usb_drive(bool enter)
         sdmmc_card_t *card = hw_sd_raw_open();
         if (!card) { hw_sd_mount(); return false; }
         tinyusb_driver_uninstall();
+        vTaskDelay(pdMS_TO_TICKS(REENUM_MS));
         tinyusb_msc_sdmmc_config_t mc = {.card = card};
         if (tinyusb_msc_storage_init_sdmmc(&mc) != ESP_OK) goto fail;
-        tinyusb_config_t cfg = {.device_descriptor = NULL, .string_descriptor = msc_strings,
+        tinyusb_config_t cfg = {.device_descriptor = &msc_device, .string_descriptor = msc_strings,
                                 .string_descriptor_count = sizeof msc_strings / sizeof *msc_strings, .external_phy = false,
                                 .configuration_descriptor = msc_config_desc};
         if (tinyusb_driver_install(&cfg) != ESP_OK) { tinyusb_msc_storage_deinit(); goto fail; }
@@ -93,6 +102,7 @@ bool hw_usb_drive(bool enter)
     tinyusb_driver_uninstall();
     tinyusb_msc_storage_deinit();
     hw_sd_raw_close();
+    vTaskDelay(pdMS_TO_TICKS(REENUM_MS));
     bool ok = hw_sd_mount();
     install_hid();
     return ok;
