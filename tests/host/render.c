@@ -1293,6 +1293,16 @@ int main(int argc, char **argv)
     key(K_ENTER);                                          /* weak password: confirmed */
     CHECK(A.db && !strcmp(A.dbname, "newdb2.kdbx"), "created with Argon2id: %s", A.msg);
 
+    /* fn+L wipes from any screen, not only with a database open */
+    app_lock(&A);
+    pick_db("aes_kpxc.kdbx");
+    type("secret-typed");
+    CHECK(A.scr == SCR_UNLOCK && A.pwlen > 0, "typing on the unlock screen");
+    key('l' | K_FN);
+    CHECK(A.scr == SCR_PICKER && !A.pwlen && !A.pw[0], "fn+L on the unlock screen wipes the password");
+    key('l' | K_FN);
+    CHECK(A.scr == SCR_PICKER, "fn+L in the picker is harmless");
+
     /* large font, time not set, auto-lock */
     cfg.large_font = true;
     app_lock(&A); /* app_init starts from scratch: close the database first */

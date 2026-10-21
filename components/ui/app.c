@@ -581,7 +581,9 @@ void app_key(app *a, uint32_t key, bool down)
         ap_mark_all(a);
         return;
     }
-    if (fn && (k == 'l' || k == 'L') && a->db && !a->fido_active) { app_lock(a); return; } /* fn+L: lock now */
+    /* fn+L: lock now, from any screen (typed passwords, an open container and form data are wiped too); not while the
+     * USB drive is shared (leave it first) or a passkey is waiting for its confirmation */
+    if (fn && (k == 'l' || k == 'L') && a->scr != SCR_DRIVE && !a->fido_active) { app_lock(a); return; }
     if (a->scr == SCR_DRIVE) { ap_drive_key(a, k, fn); return; }   /* nothing else is reachable in drive mode */
     if (k == K_TAB && (a->scr == SCR_PICKER || a->scr == SCR_HOME || a->scr == SCR_GROUP || a->scr == SCR_SEARCH ||
                        a->scr == SCR_ENTRY)) {
