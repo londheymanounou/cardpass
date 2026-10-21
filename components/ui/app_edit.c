@@ -270,6 +270,8 @@ bool ap_add_passkey(app *a, const kdbx_entry *e, const fido_new *nw)
         memcpy(ed.uuid, e->uuid, 16);
         if (e->group) memcpy(ed.parent, e->group->uuid, 16);
         ok = ap_save(a, &ed, 1);                                   /* frees the index the entry pointers lived in */
+    } else {
+        snprintf(a->msg, sizeof a->msg, "Can't copy that entry's fields (memory?)");
     }
     for (size_t i = 0; keys && vals && i < cap - na; i++) {
         free(keys[i]);

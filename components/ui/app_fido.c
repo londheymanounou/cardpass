@@ -124,7 +124,13 @@ int app_register_passkey(app *a, const fido_new *n)
     a->fchosen = NULL;
     a->fido_active = false;
     a->last_input_ms = a->now_ms;
+    char why[sizeof a->msg];
+    memcpy(why, a->msg, sizeof why);                 /* the save's own message ("Not saved: ...") must survive the redraw */
     if (a->db) ap_return(a, scr);                    /* rebuild the screen we came from: the list has a new entry */
+    if (r == 2) {
+        memcpy(a->msg, why, sizeof a->msg);
+        if (!a->msg[0] || !strncmp(a->msg, "Saving", 6)) snprintf(a->msg, sizeof a->msg, "Passkey not saved");
+    }
     if (!r && what[0]) snprintf(a->msg, sizeof a->msg, "Passkey added to %.40s", what);
     else if (!r) snprintf(a->msg, sizeof a->msg, "Passkey saved: %.40s", n->rp_id);
     ap_mark_all(a);

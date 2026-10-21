@@ -108,6 +108,36 @@ static void probe(const char *dir, const char *work, const char *name)
     printf("\n");
     if (e) { printf("%s: save %s\n", name, kdbx_strerror(e)); return; }
 
+    {   /* an update of an existing entry (all fields carried over + one more) against a new entry */
+        const kdbx_entry *x = kdbx_entries(db);
+        static char vals[40][2048];
+        kdbx_edit_field f[41];
+        size_t nfl = 0;
+        for (size_t i = 0; x && i < x->nfields && nfl < 40; i++) {
+            if (kdbx_reveal(db, &x->fields[i], vals[nfl], sizeof vals[nfl])) continue;
+            f[nfl] = (kdbx_edit_field){strdup(x->fields[i].key), vals[nfl], x->fields[i].stream_off != KDBX_PLAIN};
+            nfl++;
+        }
+        f[nfl++] = (kdbx_edit_field){"KPEX_PASSKEY_USERNAME", "zoe", false};
+        kdbx_edit up = {.op = KDBX_EDIT_ENTRY, .fields = f, .nfields = nfl};
+        if (x) memcpy(up.uuid, x->uuid, 16);
+        peak = cur;
+        before = cur;
+        biggest = 0;
+        e = kdbx_save(&db, dst, &up, 1, 1790000001, NULL, 0);
+        printf("  update of an entry: %s, peak +%zu B, largest single allocation %zu B\n", e ? kdbx_strerror(e) : "ok", peak - before, biggest);
+        kdbx_edit_field nf[1] = {{"Title", "n", false}};
+        kdbx_edit cr = {.op = KDBX_EDIT_ENTRY, .create = true, .fields = nf, .nfields = 1};
+        kdbx_new_uuid(cr.uuid);
+        if (db) memcpy(cr.parent, kdbx_root_group(db)->uuid, 16);
+        peak = cur;
+        before = cur;
+        biggest = 0;
+        e = db ? kdbx_save(&db, dst, &cr, 1, 1790000002, NULL, 0) : KDBX_ERR_EDIT;
+        printf("  new entry:          %s, peak +%zu B, largest single allocation %zu B\n", e ? kdbx_strerror(e) : "ok", peak - before, biggest);
+        if (!db) return;
+    }
+
     size_t att_peak = 0;
     for (const kdbx_entry *x = kdbx_entries(db); x && !att_peak; x = x->next)
         if (x->attachments) {

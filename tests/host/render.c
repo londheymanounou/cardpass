@@ -654,6 +654,39 @@ int main(int argc, char **argv)
             if (!strcmp(e->title, want_title)) w2 = e;
         CHECK(fido_find(A.db, "nomatch.example", fc, 2) == 1 && w2 && fc[0].e == w2, "the passkey is on %s", want_title);
         CHECK(w2 && !kdbx_reveal(A.db, kdbx_field_get(w2, "Password"), got_pw, sizeof got_pw) && !strcmp(want_pw, got_pw), "that entry's password is untouched");
+        /* every entry of the database can take a passkey, whatever it holds (attachments, notes, history, custom fields) */
+        {
+            char titles[16][128];
+            int nt = 0;
+            for (const kdbx_entry *e = kdbx_entries(A.db); e && nt < 16; e = e->next)
+                if (!kdbx_field_get(e, "KPEX_PASSKEY_PRIVATE_KEY_PEM") && e->group != kdbx_recycle_bin(A.db)) snprintf(titles[nt++], 128, "%s", e->title);
+            for (int i = 0; i < nt; i++) {
+                const kdbx_entry *e = NULL;
+                for (const kdbx_entry *x = kdbx_entries(A.db); x && !e; x = x->next)
+                    if (!strcmp(x->title, titles[i])) e = x;
+                int natt = 0, nf0 = e ? e->nfields : 0;
+                char pw0[512] = "", pw1[512] = "", u0[128] = "";
+                if (e) {
+                    for (const kdbx_attachment *z = e->attachments; z; z = z->next) natt++;
+                    const kdbx_field *pf = kdbx_field_get(e, "Password");
+                    if (pf) kdbx_reveal(A.db, pf, pw0, sizeof pw0);
+                    snprintf(u0, sizeof u0, "%s", e->username);
+                }
+                snprintf(nw.rp_id, sizeof nw.rp_id, "stress%d.example", i);
+                bool ok = e && ap_add_passkey(&A, e, &nw);
+                CHECK(ok, "stress: a passkey on '%s': %s", titles[i], A.msg);
+                const kdbx_entry *e2 = NULL;
+                for (const kdbx_entry *x = kdbx_entries(A.db); x && !e2; x = x->next)
+                    if (!strcmp(x->title, titles[i])) e2 = x;
+                int natt2 = 0;
+                if (e2) for (const kdbx_attachment *z = e2->attachments; z; z = z->next) natt2++;
+                const kdbx_field *pf2 = e2 ? kdbx_field_get(e2, "Password") : NULL;
+                if (pf2) kdbx_reveal(A.db, pf2, pw1, sizeof pw1);
+                CHECK(e2 && natt2 == natt && !strcmp(pw0, pw1) && !strcmp(u0, e2->username) && (int)e2->nfields == nf0 + 7,
+                      "stress: '%s' keeps its attachments (%d/%d), password, user, fields (%d -> %d)", titles[i], natt, natt2, nf0, e2 ? (int)e2->nfields : -1);
+                ap_wipe(pw0, sizeof pw0); ap_wipe(pw1, sizeof pw1);
+            }
+        }
         /* an entry that already has a passkey is never offered: only the new-entry row remains for that site's entries */
         ap_wipe(before, sizeof before); ap_wipe(after, sizeof after); ap_wipe(want_pw, sizeof want_pw); ap_wipe(got_pw, sizeof got_pw);
         key('l' | K_FN);
