@@ -311,8 +311,9 @@ Fixed from device reports:
   renamed "PC layout".
 Passkeys: signing in to GitHub over USB worked on the device (2026-10-21; tested by the owner).
 It needed two Enter presses (browsers send a silent up=false probe first); silent probes are now answered without a prompt: one press (confirmed by the owner).
-Still unchecked on the device: BLE reconnect after the fix, USB drive mode, clock/Wi-Fi, power/dim,
-battery, saving edits (keep a backup of real databases until test files pass), docs/first-hardware.md numbers.
+Device check (2026-10-23, owner): everything tested on the device works, including the later features (file
+browser operations, Argon2id create, passkey registration into new and existing entries, USB drive mode, saves).
+The owner calls the project done.
 
 ## Open databases anywhere + VeraCrypt containers (2026-10-18, branch device-bringup-fixes)
 - Picker has a last row "Browse SD card" (app_browse.c mode 1): any `.kdbx` on the card; any other file is taken to
