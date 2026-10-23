@@ -107,7 +107,7 @@ void ap_menu_draw(app *a, ui_strip *s, const char **hint)
 
 /* ======================= settings ======================= */
 
-enum { S_THEME, S_FONT, S_REVEAL, S_AUTOLOCK, S_DIM, S_OFF, S_LAYOUT, S_DELAY, S_TZ, S_WEAK, S_EXPIRY, S_ANIM, S_AUTOTYPE, S_SPLASH, S_ARROWS, S_CLOCK, S_LOCKOUT, S_COUNT };
+enum { S_THEME, S_FONT, S_REVEAL, S_AUTOLOCK, S_DIM, S_OFF, S_BRIGHT, S_LAYOUT, S_DELAY, S_TZ, S_WEAK, S_EXPIRY, S_ANIM, S_AUTOTYPE, S_SPLASH, S_ARROWS, S_CLOCK, S_LOCKOUT, S_COUNT };
 static const int AUTOLOCK[] = {60, 120, 300, 600, 1800, 0};
 static const int DELAYS[] = {0, 4, 8, 15, 30, 60};
 static const int DIM_S[] = {0, 10, 20, 30, 60, 120};
@@ -150,6 +150,11 @@ static void settings_change(app *a, int d)
     case S_AUTOLOCK: c->autolock_s = step_in(AUTOLOCK, 6, c->autolock_s, d); break;
     case S_DIM: c->dim_s = step_in(DIM_S, 6, c->dim_s, d); break;
     case S_OFF: c->off_s = step_in(OFF_S, 6, c->off_s, d); break;
+    case S_BRIGHT:   /* applied at once so the change can be seen */
+        c->brightness += d * 10;
+        c->brightness = c->brightness < 10 ? 10 : c->brightness > 100 ? 100 : c->brightness;
+        ap_apply_settings(a);
+        break;
     case S_LAYOUT: {
         int n = kbd_layout_count(), i = 0;
         while (i < n && strcmp(kbd_layout_name(kbd_layout_get(i)), c->layout)) i++;
@@ -192,7 +197,7 @@ void ap_settings_key(app *a, uint32_t k, bool fn)
 
 void ap_settings_draw(app *a, ui_strip *s, const char **hint)
 {
-    static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Dim after", "Screen off", "PC layout", "Key delay",
+    static const char *const names[] = {"Theme", "Text size", "Reveal", "Auto-lock", "Dim after", "Screen off", "Brightness", "PC layout", "Key delay",
                                         "Time zone", "Weak below", "Expiry warn", "Animations", "Auto-type", "Splash", "Arrows", "Clock in bar", "Wrong pw pause"};
     const cp_settings *c = &a->cfg;
     ui_fill(s, 0, CONTENT_Y, UI_W, CONTENT_H, T->bg);
@@ -210,6 +215,7 @@ void ap_settings_draw(app *a, ui_strip *s, const char **hint)
         case S_AUTOLOCK: if (c->autolock_s) snprintf(v, sizeof v, "%d min", c->autolock_s / 60); else snprintf(v, sizeof v, "Never"); break;
         case S_DIM: if (c->dim_s) snprintf(v, sizeof v, "%d s", c->dim_s); else snprintf(v, sizeof v, "Never"); break;
         case S_OFF: if (c->off_s) snprintf(v, sizeof v, "%d s", c->off_s); else snprintf(v, sizeof v, "Never"); break;
+        case S_BRIGHT: snprintf(v, sizeof v, "%d%%", c->brightness); break;
         case S_LAYOUT: snprintf(v, sizeof v, "%s", c->layout); break;
         case S_DELAY: snprintf(v, sizeof v, "%d ms", c->typing_delay_ms); break;
         case S_TZ: snprintf(v, sizeof v, "UTC%c%d:%02d", c->tz_minutes < 0 ? '-' : '+', abs(c->tz_minutes) / 60, abs(c->tz_minutes) % 60); break;

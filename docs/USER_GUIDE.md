@@ -88,7 +88,7 @@ USB drive, set time, groups, change password, Bluetooth.
   **Dusk** (dark, default), **Deep night** (dark, dimmer: lower text contrast in exchange for less light at night;
   the trade is shown when you pick it), **Daylight** (light), **Sunrise** (light, slightly warmer).
   Text size **Large** uses Bio-Resonant's own size (3 rows); **Normal** fits 5.
-- **Settings**: theme, text size, reveal mode, **animations (optional)**, auto-lock, dim and screen-off
+- **Settings**: theme, text size, reveal mode, **animations (optional)**, auto-lock, dim, screen-off and **brightness** (10-100 %, applied as you change it)
   times, keyboard layout, typing speed, time zone, "weak below" threshold, expiry warning, default
   auto-type sequence, and the **splash screen** (the CardPass logo at start-up, about 3 s, any key skips it).
 

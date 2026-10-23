@@ -507,6 +507,17 @@ int main(int argc, char **argv)
     snap("23b_settings_deep_night");
     key(K_RIGHT); /* Daylight */
     keys(K_DOWN, 6);
+    {   /* Brightness: 10 % steps, clamped to 10..100, saved at once */
+        int b0 = A.cfg.brightness;
+        key(K_RIGHT);
+        CHECK(A.cfg.brightness == (b0 + 10 > 100 ? 100 : b0 + 10) && strstr(saved_settings, "brightness="), "brightness up");
+        keys(K_LEFT, 20);
+        CHECK(A.cfg.brightness == 10, "brightness stops at 10 %%");
+        keys(K_RIGHT, 20);
+        CHECK(A.cfg.brightness == 100, "brightness stops at 100 %%");
+        A.cfg.brightness = b0;
+    }
+    key(K_DOWN);
     key(K_RIGHT); /* layout -> UK */
     snap("24_settings_light");
     key('`');
