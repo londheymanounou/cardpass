@@ -363,3 +363,9 @@ entry; one that already holds a passkey asks "replace it?", the old one stays in
 Continue docs/first-hardware.md from 3b (passkeys) on. Original stage-1 notes: ESP-IDF project (`components/*/CMakeLists.txt` for IDF,
 ROM `tinfl` via `rom/miniz.h`, `CONFIG_MBEDTLS_CHACHA20_C`, FATFS long file names for `.tmp`/`.bak`),
 display, keyboard, SD, DB picker, unlock timing, AES-KDF benchmark (HW vs SW, 1 vs 2 cores).
+
+## Original Cardputer support (2026-10-23)
+One binary for both models: hw_keys.c probes for the ADV's TCA8418 (5 tries) and otherwise scans the original's 74HC138 matrix
+(select GPIO 8/9/11, inputs 13/15/3-7, layout as M5Cardputer's IOMatrix reader). Display, SD and battery pins are the same on both
+(M5 docs). Deep-sleep wake on the original: matrix line 0 (space z c b m . opt) or G0. Builds clean (-Werror); NOT tested on an
+original Cardputer, and the ADV keyboard path must be re-checked on the device with build 36d42fc8 (detection must not misfire).

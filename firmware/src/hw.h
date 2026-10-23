@@ -25,8 +25,9 @@ void hw_power_init(void);
 void hw_power_boost(bool on);
 void hw_deep_sleep(void);                                 /* does not return; woken by the keyboard */
 
-/* keyboard (TCA8418): delivers app key codes (see app.h) */
+/* keyboard (ADV: TCA8418, original: GPIO matrix, found at start-up): delivers app key codes (see app.h) */
 void hw_keys_init(void);
+void hw_keys_wake_setup(void);                            /* arm the keyboard as the deep-sleep wake source */
 void hw_keys_poll(void (*on_key)(uint32_t key, bool down), uint32_t now_ms);
 bool hw_keys_fn_arrows(void);                             /* Settings -> Arrows: arrows need fn (main.c) */
 void hw_keys_flush(void);                                 /* drop pending events, release INT (before deep sleep) */

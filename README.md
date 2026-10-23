@@ -1,6 +1,6 @@
 # CardPass
 
-An offline KeePass (KDBX 4) password manager for the M5Stack Cardputer ADV (ESP32-S3, 512 KB RAM, no PSRAM).
+An offline KeePass (KDBX 4) password manager for the M5Stack Cardputer ADV and the original Cardputer (ESP32-S3, 512 KB RAM, no PSRAM).
 It opens the same `.kdbx` files as KeePassXC and KeePass 2. Nothing is sent anywhere: no cloud, and Wi-Fi is only
 used to set the clock while no database is open.
 
@@ -22,6 +22,9 @@ Rendered by the host UI test from the real UI code at the Cardputer's 240x135 si
 | ![Entry](docs/screenshots/entry.png) | ![Generator](docs/screenshots/generator.png) | ![Passkey registration](docs/screenshots/passkey.png) |
 
 ## Install
+
+One image runs on both the Cardputer ADV and the original Cardputer: it detects the keyboard at start-up. The ADV is the tested one; the original is untested on real hardware (reports welcome). On the original, a dead-battery deep sleep wakes with space, z, c, b, m, `.`, opt or the G0 button.
+
 
 Build it (below) or take `CardPass.bin` (SD launcher) or `CardPass-full.bin` (M5Burner) from the releases page.
 

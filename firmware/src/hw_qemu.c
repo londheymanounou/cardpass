@@ -109,6 +109,7 @@ __attribute__((unused)) static void report(const char *what)
 #ifdef CARDPASS_QEMU_UI
 void hw_keys_init(void) { uart_driver_install(UART_NUM_0, 1024, 0, 0, NULL, 0); }
 void hw_keys_flush(void) {}
+void hw_keys_wake_setup(void) {}
 void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
 {
     static char line[16];
@@ -129,6 +130,7 @@ void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
 #else
 void hw_keys_init(void) {}
 void hw_keys_flush(void) {}
+void hw_keys_wake_setup(void) {}
 void hw_keys_poll(void (*on_key)(uint32_t, bool), uint32_t now_ms)
 {
     static unsigned i;

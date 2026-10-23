@@ -151,6 +151,6 @@ void hw_power_boost(bool on)
 void hw_deep_sleep(void)
 {
     hw_keys_flush();
-    esp_sleep_enable_ext1_wakeup(1ULL << 11, ESP_EXT1_WAKEUP_ANY_LOW);   /* TCA8418 INT: any key */
+    hw_keys_wake_setup();
     esp_deep_sleep_start();
 }
