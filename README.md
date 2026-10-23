@@ -19,7 +19,7 @@ Rendered by the host UI test from the real UI code at the Cardputer's 240x135 si
 | | | |
 |---|---|---|
 | ![Splash](docs/screenshots/splash.png) | ![Browser](docs/screenshots/browser.png) | ![Entries](docs/screenshots/home.png) |
-| ![Entry with TOTP](docs/screenshots/entry.png) | ![Generator](docs/screenshots/generator.png) | ![Passkey registration](docs/screenshots/passkey.png) |
+| ![Entry](docs/screenshots/entry.png) | ![Generator](docs/screenshots/generator.png) | ![Passkey registration](docs/screenshots/passkey.png) |
 
 ## Install
 
