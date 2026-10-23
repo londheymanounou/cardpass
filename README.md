@@ -65,3 +65,7 @@ mbedTLS and tinfl (ESP-IDF), yxml, Nayuki's QR code generator (`components/qr`),
 ## License
 
 GPL-3.0, see [LICENSE](LICENSE). CardPass reads the KeePass file format but contains no KeePass code.
+
+## Support
+
+If CardPass is useful to you, you can support it on [Ko-fi](https://ko-fi.com/londhey).
