@@ -12,6 +12,15 @@ used to set the clock while no database is open.
 
 Guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md). Design and status: [PLAN.md](PLAN.md), [PROGRESS.md](PROGRESS.md).
 
+## Screenshots
+
+Rendered by the host UI test from the real UI code at the Cardputer's 240x135 size.
+
+| | | |
+|---|---|---|
+| ![Splash](docs/screenshots/splash.png) | ![Browser](docs/screenshots/browser.png) | ![Entries](docs/screenshots/home.png) |
+| ![Entry with TOTP](docs/screenshots/entry.png) | ![Generator](docs/screenshots/generator.png) | ![Passkey registration](docs/screenshots/passkey.png) |
+
 ## Install
 
 Build it (below) or take `CardPass.bin` (SD launcher) or `CardPass-full.bin` (M5Burner) from the releases page.
