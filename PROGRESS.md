@@ -371,9 +371,9 @@ One binary for both models: hw_keys.c probes for the ADV's TCA8418 (5 tries) and
 original Cardputer, and the ADV keyboard path must be re-checked on the device with build 36d42fc8 (detection must not misfire).
 
 ## Security pass (2026-10-25)
-Fuzz 40000 iterations x 10 targets, ASan/UBSan/LSan and memscan clean. Fixed: a passkey silent probe (up=false) used to return a
-real signature and, without an allow list, the user's name; any program on the USB host could ask for it with no key press. Now a probe
-needs the allow list, carries no user data and gets a dummy signature (it only says the credential exists). ctaphid send_msg no longer
-memcpy()s from NULL for empty replies. Dependencies: mbedTLS 3.6.3 and ESP-IDF 5.5.0 have newer fixes (TLS/X.509/RSA and BLE
-provisioning/WPS code that CardPass does not use); a bump to IDF 5.5.5 is worth doing when it can be tested on the device.
-Re-test on the device: sign in to GitHub with a passkey (the browser's silent probe must still lead to one key press).
+Fuzz 40000 iterations x 10 targets, ASan/UBSan/LSan and memscan clean. Fixed: ctaphid send_msg memcpy()ed from NULL for empty replies.
+Tried and REVERTED: making a passkey silent probe (up=false) return a dummy signature, no user data and require an allow list. On the
+owner's device the browser then said it could not read the security key (some browsers/Windows probe without an allow list and want the
+user entry back). Known, accepted trade-off: while the database is unlocked, any program on the USB host can get a silent assertion
+(real signature, UP flag clear, user name) with no key press; a site that checks the UP flag rejects it. Dependencies: mbedTLS 3.6.3
+and ESP-IDF 5.5.0 have newer fixes in code CardPass does not use; a bump to IDF 5.5.5 is worth doing when it can be tested on the device.

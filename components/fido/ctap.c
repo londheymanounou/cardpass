@@ -240,9 +240,6 @@ static int get_assertion(const fido_env *env, cbor_r *r, uint8_t *resp, size_t m
         if (ok) pick[npick++] = all[i];
     }
     if (!npick) { st = CTAP2_ERR_NO_CREDENTIALS; goto out; }
-    /* A silent probe only says "this credential exists": it needs the allow list (no listing of an RP's accounts without the
-     * user), carries no user data, and gets no real signature (anything on the USB host could otherwise ask for signatures). */
-    if (silent && !has_allow) { st = CTAP2_ERR_UNSUPPORTED_OPTION; goto out; }
     int sel = silent ? 0 : env->choose(env->ctx, rp, pick, npick);
     if (sel < 0 || (size_t)sel >= npick) { st = CTAP2_ERR_OPERATION_DENIED; goto out; }
     const fido_cred *c = &pick[sel];
@@ -252,14 +249,10 @@ static int get_assertion(const fido_env *env, cbor_r *r, uint8_t *resp, size_t m
     mbedtls_sha256((const uint8_t *)rp, strlen(rp), auth, 0);
     auth[32] = (silent ? 0 : FLAG_UP | FLAG_UV) | (c->be ? FLAG_BE : 0) | (c->bs ? FLAG_BS : 0);
     memset(auth + 33, 0, 4); /* signature counter: KeePassXC always uses 0 */
-    if (silent) {
-        static const uint8_t NO_SIG[] = {0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00};   /* well-formed DER, verifies as nothing */
-        memcpy(sig, NO_SIG, siglen = sizeof NO_SIG);
-    } else if ((st = sign(env->db, c->e, auth, sizeof auth, cdh, sig, sizeof sig, &siglen)) != CTAP2_OK) goto out;
+    if ((st = sign(env->db, c->e, auth, sizeof auth, cdh, sig, sizeof sig, &siglen)) != CTAP2_OK) goto out;
 
     cbor_w w = {resp + 1, 0, max - 1, false};
-    bool with_user = c->user_len && !silent;
-    cbor_map(&w, with_user ? 4 : 3);
+    cbor_map(&w, c->user_len ? 4 : 3);
     cbor_uint(&w, 1);
     cbor_map(&w, 2);
     cbor_text(&w, "id"); cbor_bytes(&w, c->cred_id, c->cred_len);
@@ -268,7 +261,7 @@ static int get_assertion(const fido_env *env, cbor_r *r, uint8_t *resp, size_t m
     cbor_bytes(&w, auth, sizeof auth);
     cbor_uint(&w, 3);
     cbor_bytes(&w, sig, siglen);
-    if (with_user) {
+    if (c->user_len) {
         cbor_uint(&w, 4);
         cbor_map(&w, c->user_name[0] ? 3 : 1);
         cbor_text(&w, "id"); cbor_bytes(&w, c->user_id, c->user_len);
