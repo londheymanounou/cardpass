@@ -76,6 +76,14 @@ static uint8_t cdh[32];
 static FILE *out;
 
 /* getAssertion via CTAPHID; returns CTAP status. */
+static bool contains(const uint8_t *h, size_t n, const char *needle)   /* memmem is not on every host */
+{
+    size_t k = strlen(needle);
+    for (size_t i = 0; i + k <= n; i++)
+        if (!memcmp(h + i, needle, k)) return true;
+    return false;
+}
+
 static int assertion(const char *rp, const fido_cred *allow, size_t nallow, const char *extra_opt, const char *label)
 {
     uint8_t req[1024];
@@ -257,9 +265,12 @@ int main(int argc, char **argv)
     CHECK(assertion("webauthn.io", NULL, 0, NULL, NULL) == CTAP2_ERR_OPERATION_DENIED, "user declines");
     {   /* up=false: answered without asking, the UP flag is clear; with no passkey it is still NO_CREDENTIALS */
         int before = asked;
-        CHECK(assertion("webauthn.io", NULL, 0, "silent", NULL) == 0 && asked == before, "silent probe: no prompt");
+        CHECK(assertion("webauthn.io", &bob, 1, "silent", NULL) == 0 && asked == before, "silent probe: no prompt");
         CHECK(rxlen > 40, "silent probe: assertion returned");
-        CHECK(assertion("nothing.example", NULL, 0, "silent", NULL) == CTAP2_ERR_NO_CREDENTIALS && asked == before, "silent probe, no passkey");
+        CHECK(rxlen < 140 && !contains(rx, rxlen, "alice") && !contains(rx, rxlen, "bob"), "silent probe: no user data");
+        CHECK(assertion("webauthn.io", NULL, 0, "silent", NULL) == CTAP2_ERR_UNSUPPORTED_OPTION && asked == before,
+              "silent probe without an allow list: refused (no listing of accounts)");
+        CHECK(assertion("nothing.example", &bob, 1, "silent", NULL) == CTAP2_ERR_NO_CREDENTIALS && asked == before, "silent probe, no passkey");
         CHECK(assertion("webauthn.io", NULL, 0, NULL, NULL) == CTAP2_ERR_OPERATION_DENIED && asked == before + 1, "a normal request still asks");
     }
     want_user = "alice";

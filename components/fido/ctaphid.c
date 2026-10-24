@@ -35,7 +35,7 @@ static void send_msg(uint32_t cid, uint8_t cmd, const uint8_t *d, size_t n, ctap
     r[5] = (uint8_t)(n >> 8);
     r[6] = (uint8_t)n;
     size_t k = n < 57 ? n : 57;
-    memcpy(r + 7, d, k);
+    if (k) memcpy(r + 7, d, k);
     send(ctx, r);
     for (off = k; off < n; off += k) {
         memset(r, 0, 64);

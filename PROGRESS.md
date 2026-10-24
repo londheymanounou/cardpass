@@ -369,3 +369,11 @@ One binary for both models: hw_keys.c probes for the ADV's TCA8418 (5 tries) and
 (select GPIO 8/9/11, inputs 13/15/3-7, layout as M5Cardputer's IOMatrix reader). Display, SD and battery pins are the same on both
 (M5 docs). Deep-sleep wake on the original: matrix line 0 (space z c b m . opt) or G0. Builds clean (-Werror); NOT tested on an
 original Cardputer, and the ADV keyboard path must be re-checked on the device with build 36d42fc8 (detection must not misfire).
+
+## Security pass (2026-10-25)
+Fuzz 40000 iterations x 10 targets, ASan/UBSan/LSan and memscan clean. Fixed: a passkey silent probe (up=false) used to return a
+real signature and, without an allow list, the user's name; any program on the USB host could ask for it with no key press. Now a probe
+needs the allow list, carries no user data and gets a dummy signature (it only says the credential exists). ctaphid send_msg no longer
+memcpy()s from NULL for empty replies. Dependencies: mbedTLS 3.6.3 and ESP-IDF 5.5.0 have newer fixes (TLS/X.509/RSA and BLE
+provisioning/WPS code that CardPass does not use); a bump to IDF 5.5.5 is worth doing when it can be tested on the device.
+Re-test on the device: sign in to GitHub with a passkey (the browser's silent probe must still lead to one key press).
