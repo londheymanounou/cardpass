@@ -1,4 +1,4 @@
-"""Package the firmware build for distribution (PLAN.md stage 8).
+"""Package the firmware build for distribution (stage 8).
 
   dist/CardPass.bin       app-only image: copy to /apps/ (or the launcher's folder) on the SD card
   dist/CardPass-full.bin  merged image (bootloader + partition table + otadata + app) for M5Burner

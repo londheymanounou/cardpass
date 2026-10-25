@@ -1,4 +1,4 @@
-/* Bluetooth typing. The radio is on only while the user has switched it on here (PLAN.md section 2):
+/* Bluetooth typing. The radio is on only while the user has switched it on here (the security rules in CLAUDE.md):
  * it goes off after 2 minutes without typing, and whenever the app locks. Pairing uses numeric
  * comparison: the code is shown here and must be confirmed with Enter. */
 #include "app_priv.h"

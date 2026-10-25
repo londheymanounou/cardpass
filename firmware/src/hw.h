@@ -48,7 +48,7 @@ void hw_vc_unmount(void);
 
 /* USB device: HID keyboard + FIDO HID */
 bool hw_usb_init(void);
-/* USB drive mode (PLAN.md stage 4): the SD card becomes a mass-storage drive for the PC and
+/* USB drive mode (stage 4): the SD card becomes a mass-storage drive for the PC and
  * nothing else is exposed. Enter: FAT unmounted first. Leave: FAT remounted (rescan the files). */
 bool hw_usb_drive(bool enter);
 bool hw_usb_ready(void);                                  /* enumerated and not suspended */

@@ -229,7 +229,7 @@ static void backlight_fn(void *ctx, int state)
     hw_power_boost(state == 0);                                  /* full speed only while the user is active */
 }
 static void shutdown_fn(void *ctx) { hw_display_sleep(true); hw_deep_sleep(); }
-/* Wi-Fi only while locked: enforced here as well as in the app (PLAN.md section 2). */
+/* Wi-Fi only while locked: enforced here as well as in the app (the security rules in CLAUDE.md). */
 static int wifi_scan_fn(void *ctx, app_ap *out, int max) { return A.db ? 0 : hw_wifi_scan(out, max); }
 static int ntp_sync_fn(void *ctx, const char *ssid, const char *pass, int64_t *t)
 {

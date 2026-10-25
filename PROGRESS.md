@@ -21,7 +21,7 @@ checked by independent readers with `python tools/check_saved.py`.
   `kdbx_attachment_read()` re-reads the file with the cached key (every block HMAC checked,
   no KDF) and copies the first N bytes; `kdbx_is_text()` decides text vs binary.
 - Tested: text/binary detection, truncation mid-character, 1.5 MB multi-block attachment,
-  wrong file rejected, still readable after edits/moves. PLAN.md decision updated.
+  wrong file rejected, still readable after edits/moves.
 - TODO on device: viewer screen (scroll, wipe buffer on leave/lock), pick the size cap.
 
 ## Stage 2 — Output methods: logic DONE, hardware TODO
@@ -136,7 +136,7 @@ checked by independent readers with `python tools/check_saved.py`.
 - Lesson from ../deck (same hardware): a 65 KB full-frame sprite left it ~1 KB from a boot
   failure. CardPass UI must draw straight to the panel / small strips, no full framebuffer.
 
-## Deviations from PLAN.md (deliberate)
+## Deviations from the original plan (deliberate)
 - No `crypto/` wrapper: mbedTLS is called directly (ESP-IDF's routes to hardware).
 - Index stores decoded ciphertext (not base64) and all string fields (entry view needs no re-read).
 - Decrypted data is parsed before its 1 MiB block's HMAC is checked (can't buffer 1 MiB);

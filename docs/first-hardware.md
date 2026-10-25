@@ -44,8 +44,7 @@ try each layout (settings -> PC layout) with the accented test entries. Passkeys
 webauthn.io with a passkey created in KeePassXC: the confirmation screen must appear (Enter
 approves). If a browser gives up while waiting, the KEEPALIVE timing is the place to look
 (`pump()` in `main.c`). Windows can require "Windows Hello / security key" dialogs to be
-dismissed first. Also verify that the serial-JTAG port really disappears while the app runs
-(PLAN.md section 5b).
+dismissed first. Also verify that the serial-JTAG port really disappears while the app runs.
 
 ## 3c. USB drive mode
 
@@ -130,4 +129,4 @@ debug build, as `docs/qemu.md` does), and a USB/BLE capture of typing must show 
 ## 5. Still to build for the device
 
 USB HID keyboard (+ FIDO HID + mass storage), BLE HID, NTP / manual clock, light sleep, launcher
-packaging and testing in M5Burner and an SD launcher, USB-Serial-JTAG check (PLAN.md section 5b).
+packaging and testing in M5Burner and an SD launcher, USB-Serial-JTAG check.

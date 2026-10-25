@@ -1,5 +1,5 @@
 #ifndef CARDPASS_QEMU   /* replaced by hw_qemu.c in the qemu env */
-/* Wi-Fi is only ever used to set the clock (PLAN.md section 2): scan, or connect + NTP, and the
+/* Wi-Fi is only ever used to set the clock (the security rules in CLAUDE.md): scan, or connect + NTP, and the
  * radio is fully shut down again before returning. The caller (main.c) refuses to call these while
  * a database is open. Credentials are never stored by IDF (RAM storage, no NVS wifi data). */
 #include <stdlib.h>

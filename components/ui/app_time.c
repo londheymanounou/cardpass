@@ -1,6 +1,6 @@
 /* Setting the clock. The ADV has no RTC, so after every power-on the time must come from here:
  *  - manually (entered as local time, converted to UTC with the time zone setting), or
- *  - over Wi-Fi + NTP. Wi-Fi is only ever available while no database is open (PLAN.md section 2),
+ *  - over Wi-Fi + NTP. Wi-Fi is only ever available while no database is open (the security rules in CLAUDE.md),
  *    and any time earlier than the firmware build date is rejected as obviously wrong. */
 #include "app_priv.h"
 

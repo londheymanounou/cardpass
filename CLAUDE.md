@@ -1,7 +1,7 @@
 # CardPass
 
 Offline KeePass (KDBX 4.x; AES-KDF, Argon2d, Argon2id) password manager for the M5Stack Cardputer ADV
-(ESP32-S3, 512 KB SRAM, no PSRAM), ESP-IDF 5.x. Full plan: `PLAN.md`. Status: `PROGRESS.md`.
+(ESP32-S3, 512 KB SRAM, no PSRAM), ESP-IDF 5.x. Status: `PROGRESS.md`.
 Work one stage per session; update `PROGRESS.md` at the end.
 
 ## Hard security rules

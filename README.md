@@ -10,7 +10,7 @@ used to set the clock while no database is open.
 - Browse the SD card, make/rename/delete folders, open VeraCrypt containers (AES + SHA-512)
 - USB drive mode, password generator, password audit, panic lock (fn+L)
 
-Guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md). Design and status: [PLAN.md](PLAN.md), [PROGRESS.md](PROGRESS.md).
+Guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md). Status and history: [PROGRESS.md](PROGRESS.md).
 
 ## Screenshots
 

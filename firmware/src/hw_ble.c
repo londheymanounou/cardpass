@@ -1,7 +1,7 @@
 #ifndef CARDPASS_QEMU   /* replaced by hw_qemu.c in the qemu env */
 /* Bluetooth LE keyboard (HID over GATT) for typing. The radio is only on while the user has switched
  * Bluetooth on (menu -> Bluetooth); starting it brings the whole stack up, stopping tears it down again
- * (PLAN.md section 2). Security: LE Secure Connections with NUMERIC COMPARISON (the Cardputer shows a
+ * (the security rules in CLAUDE.md). Security: LE Secure Connections with NUMERIC COMPARISON (the Cardputer shows a
  * 6-digit code, the user confirms it matches the host's) and bonding; a HID report is sent ONLY over a
  * link that is encrypted AND authenticated, so a nearby stranger who connects can never receive typing. */
 #include <string.h>

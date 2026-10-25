@@ -2,7 +2,7 @@
 /* USB device: composite HID keyboard (typing) + FIDO HID (passkeys) through esp_tinyusb.
  * The FIDO reports arrive in the TinyUSB task and are queued; the main task processes them
  * (user-presence UI must run there). Mass storage (SD as a drive) is a later step: entering it
- * locks the database and unmounts FAT (PLAN.md stage 4). */
+ * locks the database and unmounts FAT (stage 4). */
 #include <string.h>
 #include "class/hid/hid_device.h"
 #include "esp_timer.h"
